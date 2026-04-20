@@ -37,7 +37,7 @@ export default function MainLayout() {
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 bg-wa-teal rounded-xl flex items-center justify-center font-bold text-white text-xs shadow-lg shadow-wa-teal/20 rotate-3">AS</div>
           <div className="leading-none">
-            <h1 className="text-sm font-bold tracking-tight">AdSid Chat</h1>
+            <h1 className="text-sm font-bold tracking-tight">Adsid Chat</h1>
             <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-tighter">Secure Protocol 2.0</p>
           </div>
         </div>

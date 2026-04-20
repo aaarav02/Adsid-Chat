@@ -229,7 +229,7 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
             </div>
             <div>
               <h2 className="font-bold text-sm leading-tight">{profile?.displayName || "User"}</h2>
-              <p className="text-[10px] opacity-70">AdSid Secure Sync</p>
+              <p className="text-[10px] opacity-70">Adsid Secure Sync</p>
             </div>
           </div>
           <div className="flex items-center gap-1">

@@ -1,0 +1,144 @@
+import React, { useState } from 'react';
+import { motion } from 'motion/react';
+import { Camera, User, FileText, ChevronRight } from 'lucide-react';
+import { useChat } from '../contexts/ChatContext';
+import { db } from '../lib/firebase';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+
+export default function ProfileSetup({ onComplete }: { onComplete?: () => void }) {
+  const { user, profile, setProfile } = useChat();
+  const [formData, setFormData] = useState({
+    displayName: profile?.displayName || user?.displayName || '',
+    bio: profile?.bio || '',
+    gender: profile?.gender || 'Other',
+    age: profile?.age || 18,
+    profilePic: profile?.profilePic || user?.photoURL || ''
+  });
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setLoading(true);
+
+    try {
+      const profileData = {
+        uid: user.uid,
+        ...formData,
+        status: profile?.status || 'online',
+        lastSeen: profile?.lastSeen || serverTimestamp(),
+        isRegistered: true
+      };
+      
+      await setDoc(doc(db, 'users', user.uid), profileData);
+      setProfile(profileData as any);
+      onComplete?.();
+    } catch (error) {
+      console.error("Profile update failed", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const isEditing = !!onComplete;
+
+  return (
+    <div className={`${!isEditing ? 'min-h-screen w-full bg-wa-bg-light dark:bg-wa-bg-dark flex items-center justify-center p-4 transition-colors' : 'w-full'}`}>
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className={`w-full max-w-xl ${!isEditing ? 'bg-white dark:bg-wa-panel-dark border border-slate-200 dark:border-slate-800 rounded-[3rem] p-10 md:p-14 shadow-2xl transition-all' : ''}`}
+      >
+        {!isEditing && (
+          <div className="mb-10 space-y-3">
+            <h2 className="text-4xl font-black tracking-tight text-slate-900 dark:text-white">AdSid Profile</h2>
+            <p className="text-zinc-500 font-medium leading-relaxed">Establish your secure digital identity. Your details are encrypted on the protocol nodes.</p>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-10">
+          <div className="flex flex-col md:flex-row gap-12 items-center md:items-start">
+            {/* Avatar Selection Placeholder */}
+            <div className="relative group">
+              <div className="w-40 h-40 rounded-full bg-slate-100 dark:bg-zinc-900 flex items-center justify-center overflow-hidden border-4 border-white dark:border-zinc-800 ring-8 ring-wa-green/5 shadow-2xl shadow-wa-green/10 transition-all group-hover:ring-wa-green/10">
+                {formData.profilePic ? (
+                  <img src={formData.profilePic} alt="Avatar" className="w-full h-full object-cover" />
+                ) : (
+                  <Camera className="w-12 h-12 text-slate-300 dark:text-zinc-700" />
+                )}
+              </div>
+              <div className="absolute bottom-2 right-2 bg-wa-teal p-3 rounded-full border-4 border-white dark:border-wa-panel-dark group-hover:scale-110 transition-transform cursor-pointer shadow-lg shadow-wa-teal/30">
+                <Camera className="w-5 h-5 text-white" />
+              </div>
+            </div>
+
+            <div className="flex-1 w-full space-y-8 mt-4 md:mt-0">
+              <div className="space-y-3">
+                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-wa-teal dark:text-wa-green ml-1">Visible Protocol Alias</label>
+                <div className="relative">
+                  <User className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300 dark:text-zinc-600" />
+                  <input
+                    type="text"
+                    required
+                    value={formData.displayName}
+                    onChange={e => setFormData({ ...formData, displayName: e.target.value })}
+                    placeholder="e.g. Ghost_01"
+                    className="w-full bg-slate-50 dark:bg-zinc-950/50 border border-slate-200 dark:border-zinc-800 rounded-2xl py-4 pl-14 pr-6 text-slate-900 dark:text-white focus:border-wa-green focus:ring-1 focus:ring-wa-green transition-all outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-wa-teal dark:text-wa-green ml-1">Encrypted Bio</label>
+                <div className="relative">
+                  <FileText className="absolute left-5 top-5 w-5 h-5 text-slate-300 dark:text-zinc-600" />
+                  <textarea
+                    value={formData.bio}
+                    onChange={e => setFormData({ ...formData, bio: e.target.value })}
+                    placeholder="Your cryptographic signature..."
+                    className="w-full bg-slate-50 dark:bg-zinc-950/50 border border-slate-200 dark:border-zinc-800 rounded-2xl py-5 pl-14 pr-6 text-slate-900 dark:text-white focus:border-wa-green transition-all outline-none min-h-[140px] resize-none"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-8">
+            <div className="space-y-3">
+              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-wa-teal dark:text-wa-green ml-1">Gender Node</label>
+              <select
+                value={formData.gender}
+                onChange={e => setFormData({ ...formData, gender: e.target.value })}
+                className="w-full bg-slate-50 dark:bg-zinc-950/50 border border-slate-200 dark:border-zinc-800 rounded-2xl py-4 px-6 text-slate-900 dark:text-white focus:border-wa-green transition-all outline-none appearance-none cursor-pointer"
+              >
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div className="space-y-3">
+              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-wa-teal dark:text-wa-green ml-1">Vetting Age</label>
+              <input
+                type="number"
+                min="13"
+                max="120"
+                value={formData.age}
+                onChange={e => setFormData({ ...formData, age: parseInt(e.target.value) })}
+                className="w-full bg-slate-50 dark:bg-zinc-950/50 border border-slate-200 dark:border-zinc-800 rounded-2xl py-4 px-6 text-slate-900 dark:text-white focus:border-wa-green transition-all outline-none"
+              />
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-wa-green text-wa-dark-green font-black py-6 rounded-2xl transition-all active:scale-[0.98] flex items-center justify-center gap-3 group disabled:opacity-50 shadow-2xl shadow-wa-green/20 hover:bg-wa-teal hover:text-white"
+          >
+            {loading ? "INITIALIZING NODE..." : isEditing ? "SAVE CONFIGURATION" : "REGISTER ON PROTOCOL"}
+            <ChevronRight className="w-6 h-6 group-hover:translate-x-1 transition-transform" />
+          </button>
+        </form>
+      </motion.div>
+    </div>
+  );
+}

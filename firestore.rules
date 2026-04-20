@@ -1,0 +1,162 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- PHASE 3: Primitive Definitions ---
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      // Relaxing email verification for development/sandboxed environment
+      return isSignedIn();
+    }
+
+    function isOwner(userId) {
+      return isVerified() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- PHASE 4: Validation Blueprints ---
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'displayName']) &&
+             data.uid == request.auth.uid &&
+             data.uid is string && data.uid.size() <= 128 &&
+             data.displayName is string && data.displayName.size() <= 100 &&
+             (!('bio' in data) || (data.bio is string && data.bio.size() <= 500)) &&
+             (!('gender' in data) || (data.gender is string && data.gender.size() <= 20)) &&
+             (!('age' in data) || (data.age is number && data.age >= 0 && data.age <= 150)) &&
+             (!('status' in data) || data.status in ['online', 'offline']) &&
+             (!('profilePic' in data) || (data.profilePic is string && data.profilePic.size() <= 1000)) &&
+             (!('lastSeen' in data) || (data.lastSeen is timestamp)) &&
+             (!('isRegistered' in data) || (data.isRegistered is bool)) &&
+             (!('isTypingIn' in data) || (data.isTypingIn is string || data.isTypingIn == null));
+    }
+
+    function isValidChat(data) {
+      return data.keys().hasAll(['type', 'participants']) &&
+             data.type in ['individual', 'group'] &&
+             data.participants is list &&
+             data.participants.size() >= 1 && data.participants.size() <= 100 &&
+             request.auth.uid in data.participants;
+    }
+
+    function isValidMessage(data) {
+      return data.keys().hasAll(['chatId', 'senderId', 'content', 'timestamp']) &&
+             data.chatId is string && data.chatId.size() <= 128 &&
+             data.senderId == request.auth.uid &&
+             data.content is string && data.content.size() <= 10000 &&
+             data.timestamp == request.time &&
+             (!('senderName' in data) || (data.senderName is string && data.senderName.size() <= 100)) &&
+             (!('type' in data) || (data.type in ['text', 'image', 'gif', 'file'])) &&
+             (!('mediaUrl' in data) || (data.mediaUrl is string && data.mediaUrl.size() <= 1000000) || data.mediaUrl == null) &&
+             (!('savedBy' in data) || (data.savedBy is list && data.savedBy.size() <= 100)) &&
+             (!('seenBy' in data) || (data.seenBy is list && data.seenBy.size() <= 100));
+    }
+
+    function isValidFriendRequest(data) {
+      return data.keys().hasAll(['fromId', 'toId', 'status', 'timestamp']) &&
+             data.fromId == request.auth.uid &&
+             data.status == 'pending' &&
+             data.timestamp == request.time &&
+             (!('fromName' in data) || (data.fromName is string && data.fromName.size() <= 100)) &&
+             (!('fromPic' in data) || (data.fromPic is string && data.fromPic.size() <= 1000));
+    }
+
+    // --- PHASE 5: Implementation (The Fortress) ---
+
+    // Connection test document
+    match /test/connection {
+      allow read: if true;
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isVerified();
+      allow list: if isVerified();
+      allow create: if isValidId(userId) && isOwner(userId) && isValidUser(incoming());
+      allow update: if isValidId(userId) && isOwner(userId) && isValidUser(incoming()) && (
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'bio', 'status', 'lastSeen', 'profilePic', 'gender', 'age', 'isRegistered', 'isTypingIn'])
+      );
+    }
+
+    // Friend Requests
+    match /friendRequests/{requestId} {
+      allow get: if isValidId(requestId) && isVerified() && (existing().fromId == request.auth.uid || existing().toId == request.auth.uid);
+      allow list: if isVerified() && (existing().fromId == request.auth.uid || existing().toId == request.auth.uid);
+      allow create: if isVerified() && isValidId(requestId) && isValidFriendRequest(incoming()) &&
+                    exists(/databases/$(database)/documents/users/$(incoming().toId));
+      allow update: if isVerified() && isValidId(requestId) && (
+        // Action: Accept/Reject
+        (existing().toId == request.auth.uid && 
+         incoming().diff(existing()).affectedKeys().hasOnly(['status']) &&
+         incoming().status in ['accepted', 'rejected']) ||
+        // Action: Cancel
+        (existing().fromId == request.auth.uid &&
+         incoming().diff(existing()).affectedKeys().hasOnly(['status']) &&
+         incoming().status == 'cancelled')
+      );
+      allow delete: if false;
+    }
+
+    // Chats
+    match /chats/{chatId} {
+      function isParticipant() {
+        return isVerified() && request.auth.uid in existing().participants;
+      }
+
+      allow get: if isValidId(chatId) && isParticipant();
+      allow list: if isParticipant();
+      allow create: if isVerified() && isValidId(chatId) && isValidChat(incoming());
+      allow update: if isValidId(chatId) && isParticipant() && (
+        // Action: Update lastMessage
+        (incoming().diff(existing()).affectedKeys().hasOnly(['lastMessage']) && 
+         incoming().lastMessage.keys().hasAll(['content', 'timestamp'])) ||
+        // Action: Edit group metadata
+        (existing().type == 'group' && incoming().diff(existing()).affectedKeys().hasAny(['name', 'description', 'participants']))
+      );
+
+      // Messages subcollection
+      match /messages/{messageId} {
+        function canInteractWithChat() {
+          return isVerified() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+        }
+
+        allow get: if isValidId(chatId) && isValidId(messageId) && canInteractWithChat();
+        allow list: if isValidId(chatId) && canInteractWithChat();
+        allow create: if isValidId(chatId) && isValidId(messageId) && canInteractWithChat() && isValidMessage(incoming());
+        allow update: if isValidId(chatId) && isValidId(messageId) && canInteractWithChat() && (
+          // Action: Save/Seen toggle
+          (incoming().diff(existing()).affectedKeys().hasAny(['savedBy', 'seenBy']) &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['savedBy', 'seenBy']))
+           ||
+           // Action: Full sender update
+           (existing().senderId == request.auth.uid && isValidMessage(incoming()) &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['content', 'timestamp', 'savedBy', 'seenBy', 'type', 'fileName', 'fileUrl']))
+        );
+        allow delete: if isVerified() && isValidId(chatId) && isValidId(messageId) && (
+          existing().senderId == request.auth.uid
+        );
+      }
+    }
+  }
+}

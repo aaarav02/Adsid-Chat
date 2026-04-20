@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", -apple-system, system-ui, sans-serif;
+  --font-display: "Inter", sans-serif;
+  
+  /* WhatsApp / Green Theme */
+  --color-wa-teal: #128C7E;
+  --color-wa-green: #25D366;
+  --color-wa-light-green: #DCF8C6;
+  --color-wa-dark-green: #075E54;
+  --color-wa-bg-light: #F0F2F5;
+  --color-wa-bg-dark: #0B141A;
+  --color-wa-panel-light: #FFFFFF;
+  --color-wa-panel-dark: #111B21;
+  --color-wa-bubble-out-light: #E7FFDB;
+  --color-wa-bubble-out-dark: #005C4B;
+  --color-wa-bubble-in-light: #FFFFFF;
+  --color-wa-bubble-in-dark: #202C33;
+}
+
+@layer base {
+  html, body {
+    @apply h-full transition-colors duration-200;
+  }
+  
+  body {
+    @apply bg-wa-bg-light text-slate-900 selection:bg-wa-green/30;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  .dark {
+    @apply bg-wa-bg-dark text-slate-100;
+  }
+
+  /* Hide scrollbar for Chrome, Safari and Opera */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Hide scrollbar for IE, Edge and Firefox */
+  .no-scrollbar {
+    -ms-overflow-style: none; /* IE and Edge */
+    scrollbar-width: none; /* Firefox */
+  }
+}
+
+@layer components {
+  .status-online { @apply bg-wa-green; }
+  .status-offline { @apply bg-slate-400; }
+  
+  .message-bubble {
+    @apply p-2 rounded-lg text-[13px] shadow-sm relative;
+  }
+
+  .message-out {
+    @apply bg-wa-bubble-out-light dark:bg-wa-bubble-out-dark self-end rounded-tr-none;
+  }
+
+  .message-in {
+    @apply bg-wa-bubble-in-light dark:bg-wa-bubble-in-dark self-start rounded-tl-none border border-slate-200 dark:border-none;
+  }
+}
+
+.glass {
+  @apply backdrop-blur-xl bg-white/70 dark:bg-black/70 border border-slate-200 dark:border-slate-800;
+}

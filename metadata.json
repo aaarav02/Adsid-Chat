@@ -1,0 +1,6 @@
+{
+  "name": "Remix: AdSid Chat",
+  "description": "WhatsApp-themed real-time chat application featuring light/dark modes, a 'Discover' portal for finding online users, friend requests, and secure disappearing messages.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

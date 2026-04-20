@@ -1,0 +1,134 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- PHASE 3: Primitive Definitions ---
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- PHASE 4: Validation Blueprints ---
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'displayName']) &&
+             data.uid is string && data.uid.size() <= 128 &&
+             data.displayName is string && data.displayName.size() <= 100 &&
+             (!('bio' in data) || (data.bio is string && data.bio.size() <= 500)) &&
+             (!('status' in data) || data.status in ['online', 'offline']) &&
+             data.uid == request.auth.uid;
+    }
+
+    function isValidChat(data) {
+      return data.keys().hasAll(['type', 'participants']) &&
+             data.type in ['individual', 'group'] &&
+             data.participants is list &&
+             data.participants.size() >= 1 && data.participants.size() <= 100 &&
+             request.auth.uid in data.participants;
+    }
+
+    function isValidMessage(data) {
+      return data.keys().hasAll(['chatId', 'senderId', 'content', 'timestamp']) &&
+             data.chatId is string && data.chatId.size() <= 128 &&
+             data.senderId == request.auth.uid &&
+             data.content is string && data.content.size() <= 5000 &&
+             data.timestamp == request.time;
+    }
+
+    function isValidFriendRequest(data) {
+      return data.keys().hasAll(['fromId', 'toId', 'status', 'timestamp']) &&
+             data.fromId == request.auth.uid &&
+             data.status == 'pending' &&
+             data.timestamp == request.time;
+    }
+
+    // --- PHASE 5: Implementation (The Fortress) ---
+
+    // Connection test document
+    match /test/connection {
+      allow read: if true;
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn(); // In this case, we might want to search users
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && isValidUser(incoming()) && (
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'bio', 'status', 'lastSeen', 'profilePic', 'gender', 'age', 'isRegistered'])
+      );
+    }
+
+    // Friend Requests
+    match /friendRequests/{requestId} {
+      allow read: if isSignedIn() && (existing().fromId == request.auth.uid || existing().toId == request.auth.uid);
+      allow create: if isSignedIn() && isValidId(requestId) && isValidFriendRequest(incoming()) &&
+                    exists(/databases/$(database)/documents/users/$(incoming().toId));
+      allow update: if isSignedIn() && (
+        // Receiver accepts/rejects
+        (existing().toId == request.auth.uid && 
+         incoming().diff(existing()).affectedKeys().hasOnly(['status']) &&
+         incoming().status in ['accepted', 'rejected']) ||
+        // Sender cancels (if we supported it, but let's keep it simple)
+        (existing().fromId == request.auth.uid &&
+         incoming().diff(existing()).affectedKeys().hasOnly(['status']) &&
+         incoming().status == 'cancelled')
+      );
+      allow delete: if false;
+    }
+
+    // Chats
+    match /chats/{chatId} {
+      function isParticipant() {
+        return isSignedIn() && request.auth.uid in existing().participants;
+      }
+
+      allow read: if isParticipant();
+      allow create: if isSignedIn() && isValidId(chatId) && isValidChat(incoming());
+      allow update: if isParticipant() && (
+        // Update lastMessage
+        incoming().diff(existing()).affectedKeys().hasOnly(['lastMessage']) ||
+        // Update group info
+        (existing().type == 'group' && incoming().diff(existing()).affectedKeys().hasAny(['name', 'description', 'participants']))
+      );
+
+      // Messages subcollection
+      match /messages/{messageId} {
+        function canInteractWithChat() {
+          return isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+        }
+
+        allow read: if canInteractWithChat();
+        allow create: if canInteractWithChat() && isValidId(messageId) && isValidMessage(incoming());
+        allow update: if canInteractWithChat() && (
+          // Toggle savedBy or seenBy
+          incoming().diff(existing()).affectedKeys().hasAny(['savedBy', 'seenBy']) &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['savedBy', 'seenBy'])
+        );
+        allow delete: if false;
+      }
+    }
+  }
+}

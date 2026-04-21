@@ -21,8 +21,23 @@ export default function AuthScreen() {
       >
         <div className="absolute top-0 left-0 w-full h-2 bg-wa-green shadow-[0_0_15px_rgba(37,211,102,0.4)]" />
         
-        <div className="w-24 h-24 bg-wa-teal rounded-3xl flex items-center justify-center shadow-lg shadow-wa-teal/20 rotate-3 transform hover:rotate-0 transition-transform cursor-default">
-          <span className="text-4xl font-black italic tracking-tighter text-white">AS</span>
+        <div className="w-24 h-24 bg-wa-teal rounded-3xl flex items-center justify-center shadow-lg shadow-wa-teal/20 rotate-3 transform hover:rotate-0 transition-transform cursor-default overflow-hidden">
+          <img 
+            src="/logo.png" 
+            alt="Adsid Logo" 
+            className="w-full h-full object-cover"
+            onError={(e) => {
+              const target = e.target as HTMLImageElement;
+              target.style.display = 'none';
+              const parent = target.parentElement;
+              if (parent) {
+                const span = document.createElement('span');
+                span.innerText = 'AS';
+                span.className = 'text-4xl font-black italic tracking-tighter text-white';
+                parent.appendChild(span);
+              }
+            }}
+          />
         </div>
         
         <div className="text-center space-y-3">

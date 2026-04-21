@@ -15,8 +15,8 @@ function AppContent() {
   }
 
   if (loading) return (
-    <div className="h-screen w-full flex items-center justify-center bg-zinc-950">
-      <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-blue-500"></div>
+    <div className="h-screen w-full flex items-center justify-center bg-white dark:bg-wa-bg-dark transition-colors text-wa-teal dark:text-wa-green">
+      <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-current"></div>
     </div>
   );
 
@@ -35,7 +35,7 @@ function AppContent() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="h-screen w-screen overflow-hidden bg-zinc-950 text-white"
+        className="h-screen w-screen overflow-hidden bg-white dark:bg-wa-bg-dark text-slate-900 dark:text-white"
       >
         <MainLayout />
       </motion.div>

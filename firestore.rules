@@ -50,7 +50,7 @@ service cloud.firestore {
              (!('gender' in data) || (data.gender is string && data.gender.size() <= 20)) &&
              (!('age' in data) || (data.age is number && data.age >= 0 && data.age <= 150)) &&
              (!('status' in data) || data.status in ['online', 'offline']) &&
-             (!('profilePic' in data) || (data.profilePic is string && data.profilePic.size() <= 1000)) &&
+             (!('profilePic' in data) || (data.profilePic is string && data.profilePic.size() <= 1000000)) &&
              (!('lastSeen' in data) || (data.lastSeen is timestamp)) &&
              (!('isRegistered' in data) || (data.isRegistered is bool)) &&
              (!('isTypingIn' in data) || (data.isTypingIn is string || data.isTypingIn == null));
@@ -162,9 +162,7 @@ service cloud.firestore {
            (existing().senderId == request.auth.uid && isValidMessage(incoming()) &&
             incoming().diff(existing()).affectedKeys().hasOnly(['content', 'timestamp', 'savedBy', 'seenBy', 'type', 'fileName', 'fileUrl']))
         );
-        allow delete: if isVerified() && isValidId(chatId) && isValidId(messageId) && (
-          existing().senderId == request.auth.uid || isAdmin()
-        );
+        allow delete: if isValidId(chatId) && isValidId(messageId) && canInteractWithChat();
       }
     }
   }

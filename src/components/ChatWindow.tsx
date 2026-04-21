@@ -29,6 +29,8 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
   const [isTyping, setIsTyping] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
+  const [showInfo, setShowInfo] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [otherProfile, setOtherProfile] = useState<any>(null);
   const [forceUpdate, setForceUpdate] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -195,17 +197,24 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
 
   const deleteChat = async () => {
     if (!confirm("Delete this entire chat? This cannot be undone.")) return;
+    setIsDeleting(true);
     try {
-      // Delete all messages first
+      // 1. Unsubscribe/Stop UI updates if possible (though we unmount soon)
+      // 2. Delete all messages first
       const msgs = await getDocs(collection(db, 'chats', chat.id, 'messages'));
-      for (const m of msgs.docs) {
-        await deleteDoc(m.ref);
+      const batchSize = 20; // Delete in chunks
+      for (let i = 0; i < msgs.docs.length; i += batchSize) {
+        const chunk = msgs.docs.slice(i, i + batchSize);
+        await Promise.all(chunk.map(m => deleteDoc(m.ref)));
       }
-      // Delete chat document
+      // 3. Delete chat document
       await deleteDoc(doc(db, 'chats', chat.id));
+      setIsDeleting(false);
       onBack();
     } catch (err) {
       console.error("Failed to delete chat", err);
+      setIsDeleting(false);
+      alert("Delete failed. Check connection.");
     }
   };
 
@@ -240,86 +249,101 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#E5DDD5] dark:bg-[#0B141A] relative overflow-hidden transition-colors">
-      {/* WhatsApp Wallpaper Pattern Overlay */}
-      <div className="absolute inset-0 opacity-[0.06] dark:opacity-[0.03] pointer-events-none pointer-events-none bg-[url('https://picsum.photos/seed/pattern/1000/1000')] bg-repeat" />
+    <div className="flex h-full bg-[#E5DDD5] dark:bg-[#0B141A] relative overflow-hidden transition-colors">
+      <div className={`flex flex-col flex-1 h-full relative transition-all duration-300 ${showInfo ? 'mr-0 sm:mr-80' : ''}`}>
+        {/* WhatsApp Wallpaper Pattern Overlay */}
+        <div className="absolute inset-0 opacity-[0.06] dark:opacity-[0.03] pointer-events-none bg-[url('https://picsum.photos/seed/pattern/1000/1000')] bg-repeat" />
 
-      {/* Header - WhatsApp Teal */}
-      <div className="h-16 bg-wa-teal dark:bg-wa-panel-dark text-white flex items-center px-4 justify-between sticky top-0 z-10 shadow-md">
-        <div className="flex items-center gap-3">
-          <button onClick={onBack} className="md:hidden p-2 hover:bg-white/10 rounded-full transition-all">
-            <ChevronLeft className="w-6 h-6" />
-          </button>
-          <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center overflow-hidden border border-white/20">
-             {chat.profilePic ? (
-               <img src={chat.profilePic} alt="" className="w-full h-full object-cover" />
-             ) : (
-               <User className="w-6 h-6 text-white/50" />
-             )}
+        {/* Header - WhatsApp Teal */}
+        <div className="h-16 bg-wa-teal dark:bg-wa-panel-dark text-white flex items-center px-4 justify-between sticky top-0 z-10 shadow-md">
+          <div 
+            className="flex items-center gap-3 cursor-pointer hover:bg-white/5 p-1 rounded-lg transition-colors flex-1 min-w-0"
+            onClick={() => setShowInfo(!showInfo)}
+          >
+            <button 
+              onClick={(e) => { e.stopPropagation(); onBack(); }} 
+              className="md:hidden p-1.5 hover:bg-white/10 rounded-full transition-all"
+            >
+              <ChevronLeft className="w-6 h-6" />
+            </button>
+            <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center overflow-hidden border border-white/20 shrink-0 shadow-inner">
+               {chat.profilePic || otherProfile?.profilePic ? (
+                 <img src={chat.profilePic || otherProfile?.profilePic} alt="" className="w-full h-full object-cover" />
+               ) : (
+                 <User className="w-6 h-6 text-white/50" />
+               )}
+            </div>
+            <div className="min-w-0 text-left">
+              <h2 className="text-sm font-bold truncate tracking-tight">
+                {chat.type === 'group' ? (chat.name || "Security Group") : (otherProfile?.displayName || chat.participantDetails?.[chat.participants?.find((id: string) => id !== user?.uid)]?.name || "Secure Profile")}
+              </h2>
+              <div className="flex items-center gap-1">
+                <div className={`w-1.5 h-1.5 rounded-full shadow-md ${isOtherOnline() ? 'bg-wa-green animate-pulse shadow-wa-green/50' : 'bg-slate-400'}`} />
+                <p className="text-[10px] opacity-80 font-bold uppercase tracking-widest text-[#D1D7DB] dark:text-[#8696A0]">
+                  {isOtherOnline() ? 'Online' : 'Offline'}
+                </p>
+              </div>
+            </div>
           </div>
-          <div className="min-w-0 text-left">
-            <h2 className="text-sm font-bold truncate tracking-tight">
-              {chat.type === 'group' ? (chat.name || "Security Group") : (otherProfile?.displayName || chat.participantDetails?.[chat.participants?.find((id: string) => id !== user?.uid)]?.name || "Secure Profile")}
-            </h2>
-            <div className="flex items-center gap-1">
-              <div className={`w-2 h-2 rounded-full shadow-md ${isOtherOnline() ? 'bg-wa-green animate-pulse shadow-wa-green/50' : 'bg-slate-400'}`} />
-              <p className="text-[10px] opacity-80 font-bold uppercase tracking-tight">
-                {isOtherOnline() ? 'Online User' : 'Offline User'}
-              </p>
+          <div className="flex items-center gap-2">
+            <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 bg-white/10 rounded-full text-[10px] font-bold border border-white/10 backdrop-blur-sm">
+              <CheckCircle2 className="w-3 h-3 text-wa-green" />
+              Secure Sync Active
+            </div>
+            <div className="relative">
+              <button 
+                onClick={() => setShowMenu(!showMenu)}
+                className={`p-2 rounded-full transition-all ${showMenu ? 'bg-white/20' : 'hover:bg-white/10'} opacity-70`}
+              >
+                <MoreVertical className="w-5 h-5" />
+              </button>
+              <AnimatePresence>
+                {showMenu && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.9, y: -20 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.9, y: -20 }}
+                    className="absolute right-0 mt-2 w-56 bg-white dark:bg-wa-panel-dark text-slate-900 dark:text-slate-100 rounded-xl shadow-2xl overflow-hidden z-30 border border-slate-200 dark:border-slate-800"
+                  >
+                    <button 
+                      onClick={() => { setShowInfo(true); setShowMenu(false); }}
+                      className="w-full flex items-center gap-3 p-4 hover:bg-slate-50 dark:hover:bg-wa-panel-light/10 transition-colors"
+                    >
+                      <User className="w-4 h-4 text-wa-teal dark:text-wa-green" />
+                      <span className="text-[13px] font-bold">Contact Info</span>
+                    </button>
+                    <button 
+                      onClick={toggleDisappearingMode}
+                      className="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-wa-panel-light/10 transition-colors"
+                    >
+                      <div className="flex flex-col items-start gap-0.5">
+                        <span className="text-[13px] font-bold uppercase tracking-tight">Disappearing Mode</span>
+                        <span className={`text-[10px] font-black uppercase ${liveChat.disappearingMode ? 'text-wa-green' : 'text-zinc-500'}`}>
+                          {liveChat.disappearingMode ? 'Active' : 'Disabled'}
+                        </span>
+                      </div>
+                      <div className={`w-11 h-6 rounded-full relative transition-all duration-300 ${liveChat.disappearingMode ? 'bg-wa-green shadow-[0_0_10px_rgba(37,211,102,0.3)]' : 'bg-slate-300 dark:bg-zinc-700'}`}>
+                        <motion.div 
+                          animate={{ x: liveChat.disappearingMode ? 22 : 2 }}
+                          transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                          className="absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm" 
+                        />
+                      </div>
+                    </button>
+                    <button 
+                      onClick={deleteChat}
+                      disabled={isDeleting}
+                      className="w-full flex items-center gap-3 p-4 hover:bg-red-50 dark:hover:bg-red-500/10 text-red-500 transition-colors border-t border-slate-100 dark:border-slate-800 disabled:opacity-50"
+                    >
+                      {isDeleting ? <div className="w-4 h-4 border-2 border-red-500 border-t-transparent animate-spin rounded-full" /> : <Trash2 className="w-4 h-4" />}
+                      <span className="text-[13px] font-bold">Delete Chat</span>
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 bg-white/10 rounded-full text-[10px] font-bold border border-white/10 backdrop-blur-sm">
-            <CheckCircle2 className="w-3 h-3 text-wa-green" />
-            End-to-end Encrypted
-          </div>
-          <div className="relative">
-            <button 
-              onClick={() => setShowMenu(!showMenu)}
-              className={`p-2 rounded-full transition-all ${showMenu ? 'bg-white/20' : 'hover:bg-white/10'} opacity-70`}
-            >
-              <MoreVertical className="w-5 h-5" />
-            </button>
-            <AnimatePresence>
-              {showMenu && (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.9, y: -20 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.9, y: -20 }}
-                  className="absolute right-0 mt-2 w-56 bg-white dark:bg-wa-panel-dark rounded-xl shadow-2xl overflow-hidden z-30 border border-slate-200 dark:border-slate-800"
-                >
-                  <button 
-                    onClick={toggleDisappearingMode}
-                    className="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-wa-panel-light/10 transition-colors"
-                  >
-                    <div className="flex flex-col items-start gap-0.5">
-                      <span className="text-[13px] font-bold dark:text-slate-200">Disappearing Messages</span>
-                      <span className={`text-[10px] font-black uppercase ${liveChat.disappearingMode ? 'text-wa-green' : 'text-zinc-500'}`}>
-                        {liveChat.disappearingMode ? 'Active' : 'Disabled'}
-                      </span>
-                    </div>
-                    <div className={`w-11 h-6 rounded-full relative transition-all duration-300 ${liveChat.disappearingMode ? 'bg-wa-green shadow-[0_0_10px_rgba(37,211,102,0.3)]' : 'bg-slate-300 dark:bg-zinc-700'}`}>
-                      <motion.div 
-                        animate={{ x: liveChat.disappearingMode ? 22 : 2 }}
-                        transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-                        className="absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm" 
-                      />
-                    </div>
-                  </button>
-                  <button 
-                    onClick={deleteChat}
-                    className="w-full flex items-center gap-3 p-4 hover:bg-red-50 dark:hover:bg-red-500/10 text-red-500 transition-colors border-t border-slate-100 dark:border-slate-800"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    <span className="text-[13px] font-bold">Delete This Chat</span>
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        </div>
-      </div>
 
       {/* Messages list */}
       <div className="flex-1 overflow-y-auto p-4 space-y-2 no-scrollbar relative z-0">
@@ -539,5 +563,92 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
         </AnimatePresence>
       </footer>
     </div>
-  );
+
+    {/* Info Sidebar (Contact Details) */}
+    <AnimatePresence>
+      {showInfo && (
+        <motion.div 
+          initial={{ x: '100%' }}
+          animate={{ x: 0 }}
+          exit={{ x: '100%' }}
+          transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+          className="absolute top-0 right-0 w-full sm:w-80 h-full bg-wa-panel-light dark:bg-wa-panel-dark border-l border-slate-200 dark:border-slate-800 z-50 overflow-y-auto no-scrollbar shadow-2xl transition-colors"
+        >
+          {/* Info Header */}
+          <div className="h-16 bg-wa-teal dark:bg-wa-panel-dark flex items-center px-6 text-white sticky top-0 z-10 shadow-sm transition-colors">
+            <button 
+              onClick={() => setShowInfo(false)} 
+              className="mr-4 p-1 rounded-full hover:bg-white/10"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <h3 className="font-bold text-sm uppercase tracking-widest leading-none">Contact Info</h3>
+          </div>
+
+          <div className="p-0">
+            <div className="flex flex-col items-center py-8 bg-white dark:bg-wa-panel-light/5">
+              <div className="w-32 h-32 rounded-full overflow-hidden mb-4 border-4 border-white dark:border-wa-panel-dark shadow-xl">
+                 {chat.profilePic || otherProfile?.profilePic ? (
+                   <img src={chat.profilePic || otherProfile?.profilePic} alt="" className="w-full h-full object-cover" />
+                 ) : (
+                   <div className="w-full h-full flex items-center justify-center bg-wa-teal/10">
+                     <User className="w-16 h-16 text-wa-teal/30" />
+                   </div>
+                 )}
+              </div>
+              <h2 className="text-xl font-bold dark:text-white uppercase tracking-tight">
+                {otherProfile?.displayName || chat.participantDetails?.[chat.participants?.find((id: string) => id !== user?.uid)]?.name}
+              </h2>
+              <div className="flex items-center gap-1.5 mt-1">
+                <div className={`w-2 h-2 rounded-full ${isOtherOnline() ? 'bg-wa-green animate-pulse' : 'bg-slate-400'}`} />
+                <span className="text-[10px] font-black uppercase text-slate-500 tracking-tighter">
+                  {isOtherOnline() ? 'Active on Protocol' : 'Node Offline'}
+                </span>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-8">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-wa-teal dark:text-wa-green">Bio / Signature</label>
+                <p className="text-sm dark:text-slate-300 leading-relaxed italic">
+                  "{otherProfile?.bio || "No status cryptographic signature provided."}"
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-4 bg-slate-50 dark:bg-zinc-900/50 rounded-2xl border border-slate-100 dark:border-zinc-800">
+                  <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 block mb-1">Gender</label>
+                  <span className="text-sm font-bold dark:text-slate-200">{otherProfile?.gender || "Unknown"}</span>
+                </div>
+                <div className="p-4 bg-slate-50 dark:bg-zinc-900/50 rounded-2xl border border-slate-100 dark:border-zinc-800">
+                  <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500 block mb-1">Vetted Age</label>
+                  <span className="text-sm font-bold dark:text-slate-200">{otherProfile?.age || "???"}+</span>
+                </div>
+              </div>
+
+              <div className="pt-6 border-t border-slate-100 dark:border-slate-800">
+                 <div className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider mb-4 opacity-70">Shared Vault Settings</div>
+                 <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-zinc-900/30 rounded-xl">
+                   <span className="text-[11px] font-bold text-slate-600 dark:text-zinc-400">Ephemeral Logs</span>
+                   <div className={`w-8 h-4 rounded-full relative ${liveChat.disappearingMode ? 'bg-wa-green' : 'bg-slate-300'} transition-colors`}>
+                      <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${liveChat.disappearingMode ? 'right-0.5' : 'left-0.5'}`} />
+                   </div>
+                 </div>
+              </div>
+
+              <button 
+                onClick={deleteChat}
+                disabled={isDeleting}
+                className="w-full flex items-center justify-center gap-3 p-4 bg-red-500 hover:bg-red-600 text-white rounded-2xl transition-all shadow-lg shadow-red-500/20 active:scale-[0.98] disabled:opacity-50"
+              >
+                {isDeleting ? <div className="w-5 h-5 border-2 border-white border-t-transparent animate-spin rounded-full" /> : <Trash2 className="w-5 h-5" />}
+                <span className="text-[14px] font-black uppercase tracking-widest">Wipe This Channel</span>
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  </div>
+);
 }

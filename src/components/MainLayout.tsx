@@ -35,7 +35,24 @@ export default function MainLayout() {
       {/* Global Top Nav */}
       <header className="h-14 border-b border-slate-200 dark:border-slate-800 flex items-center px-4 justify-between bg-wa-panel-light dark:bg-wa-panel-dark z-50 transition-colors shrink-0">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 bg-wa-teal rounded-xl flex items-center justify-center font-bold text-white text-xs shadow-lg shadow-wa-teal/20 rotate-3">AS</div>
+          <div className="w-10 h-10 bg-wa-teal rounded-xl flex items-center justify-center overflow-hidden shadow-lg shadow-wa-teal/20">
+            <img 
+              src="/logo.png" 
+              alt="Adsid Logo" 
+              className="w-full h-full object-cover"
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                target.style.display = 'none';
+                const parent = target.parentElement;
+                if (parent) {
+                  const span = document.createElement('span');
+                  span.innerText = 'AS';
+                  span.className = 'text-white font-bold text-xs';
+                  parent.appendChild(span);
+                }
+              }}
+            />
+          </div>
           <div className="leading-none">
             <h1 className="text-sm font-bold tracking-tight">Adsid Chat</h1>
             <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-tighter">Secure Protocol 2.0</p>
@@ -97,8 +114,23 @@ export default function MainLayout() {
             <ChatWindow chat={selectedChat} onBack={() => setSelectedChat(null)} />
           ) : (
             <div className="hidden sm:flex flex-1 flex-col items-center justify-center text-zinc-400 gap-6">
-              <div className="w-16 h-16 bg-slate-100 dark:bg-zinc-900 rounded-2xl flex items-center justify-center border border-slate-200 dark:border-zinc-800 shadow-xl">
-                <span className="text-2xl font-black italic tracking-tighter text-wa-teal">AS</span>
+              <div className="w-16 h-16 bg-slate-100 dark:bg-zinc-900 rounded-2xl flex items-center justify-center border border-slate-200 dark:border-zinc-800 shadow-xl overflow-hidden">
+                <img 
+                  src="/logo.png" 
+                  alt="Adsid Logo" 
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    target.style.display = 'none';
+                    const parent = target.parentElement;
+                    if (parent) {
+                      const span = document.createElement('span');
+                      span.innerText = 'AS';
+                      span.className = 'text-2xl font-black italic tracking-tighter text-wa-teal';
+                      parent.appendChild(span);
+                    }
+                  }}
+                />
               </div>
               <div className="text-center px-4">
                 <h3 className="text-sm font-bold text-zinc-500 uppercase tracking-widest">Select a secure channel</h3>

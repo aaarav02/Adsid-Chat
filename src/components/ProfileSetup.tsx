@@ -33,16 +33,22 @@ export default function ProfileSetup({ onComplete }: { onComplete?: () => void }
     setLoading(true);
 
     try {
-      const profileData = {
+      const dbData = {
         uid: user.uid,
         ...formData,
         status: profile?.status || 'online',
-        lastSeen: profile?.lastSeen || serverTimestamp(),
+        lastSeen: serverTimestamp(),
         isRegistered: true
       };
       
-      await setDoc(doc(db, 'users', user.uid), profileData);
-      setProfile(profileData as any);
+      await setDoc(doc(db, 'users', user.uid), dbData);
+      
+      // Update local state immediately with local timestamp to avoid wait
+      setProfile({
+        ...dbData,
+        lastSeen: { toMillis: () => Date.now() } // Mock for immediate display
+      } as any);
+      
       onComplete?.();
     } catch (error) {
       console.error("Profile update failed", error);

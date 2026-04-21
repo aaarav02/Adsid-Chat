@@ -15,6 +15,17 @@ export default function ProfileSetup({ onComplete }: { onComplete?: () => void }
     profilePic: profile?.profilePic || user?.photoURL || ''
   });
   const [loading, setLoading] = useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setFormData({ ...formData, profilePic: ev.target?.result as string });
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,7 +70,14 @@ export default function ProfileSetup({ onComplete }: { onComplete?: () => void }
         <form onSubmit={handleSubmit} className="space-y-10">
           <div className="flex flex-col md:flex-row gap-12 items-center md:items-start">
             {/* Avatar Selection Placeholder */}
-            <div className="relative group">
+            <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                onChange={handleImageChange} 
+                className="hidden" 
+                accept="image/*"
+              />
               <div className="w-40 h-40 rounded-full bg-slate-100 dark:bg-zinc-900 flex items-center justify-center overflow-hidden border-4 border-white dark:border-zinc-800 ring-8 ring-wa-green/5 shadow-2xl shadow-wa-green/10 transition-all group-hover:ring-wa-green/10">
                 {formData.profilePic ? (
                   <img src={formData.profilePic} alt="Avatar" className="w-full h-full object-cover" />

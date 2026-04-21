@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Search, Users, UserPlus, LogOut, MessageSquare, Plus, Bell, User, Sun, Moon, Compass, CheckCircle2, CheckCheck, Trash2, ShieldAlert } from 'lucide-react';
 import { auth, db } from '../lib/firebase';
 import { useChat } from '../contexts/ChatContext';
 import { useTheme } from '../contexts/ThemeContext';
-import { collection, query, where, onSnapshot, getDocs, addDoc, serverTimestamp, doc, updateDoc, limit, deleteDoc, writeBatch } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, getDocs, getDoc, addDoc, serverTimestamp, doc, updateDoc, limit, deleteDoc, writeBatch, setDoc, orderBy } from 'firebase/firestore';
 import { formatDistanceToNow } from 'date-fns';
 
 interface SidebarProps {
@@ -20,8 +20,10 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
   const [chats, setChats] = useState<any[]>([]);
   const [requests, setRequests] = useState<any[]>([]);
   const [discoverUsers, setDiscoverUsers] = useState<any[]>([]);
+  const [friends, setFriends] = useState<any[]>([]);
   const [isCleaning, setIsCleaning] = useState(false);
   const [userProfiles, setUserProfiles] = useState<Record<string, any>>({});
+  const [uploadingPic, setUploadingPic] = useState(false);
 
   const isAdmin = user?.email === 'extremear762@gmail.com';
 
@@ -33,30 +35,9 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
       where('participants', 'array-contains', user.uid)
     );
     return onSnapshot(q, (snapshot) => {
-      const chatList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setChats(chatList);
-
-      // Fetch missing profiles for participants
-      const missingIds = new Set<string>();
-      chatList.forEach((chat: any) => {
-        chat.participants?.forEach((pid: string) => {
-          if (pid !== user.uid && !chat.participantDetails?.[pid]?.name && !userProfiles[pid]) {
-            missingIds.add(pid);
-          }
-        });
-      });
-
-      if (missingIds.size > 0) {
-        missingIds.forEach(async (pid) => {
-          const uDoc = await getDocs(query(collection(db, 'users'), where('uid', '==', pid), limit(1)));
-          if (!uDoc.empty) {
-            const userData = uDoc.docs[0].data();
-            setUserProfiles(prev => ({ ...prev, [pid]: userData }));
-          }
-        });
-      }
+      setChats(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
-  }, [user, userProfiles]);
+  }, [user]);
 
   // Listen for requests
   useEffect(() => {
@@ -70,6 +51,101 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
       setRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
   }, [user]);
+
+  // Listen for friends
+  useEffect(() => {
+    if (!user) return;
+    const q = query(collection(db, 'users', user.uid, 'friends'), orderBy('timestamp', 'desc'));
+    return onSnapshot(q, (snapshot) => {
+      setFriends(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+  }, [user]);
+
+  // Sync existing chats to friends list automatically
+  const [forceUpdate, setForceUpdate] = useState(0);
+
+  // Periodic Refresh for status staleness
+  useEffect(() => {
+    const timer = setInterval(() => setForceUpdate(s => s + 1), 10000); // Check every 10s
+    return () => clearInterval(timer);
+  }, []);
+
+  const isUserOnline = (uid: string) => {
+    const p = userProfiles[uid];
+    if (!p) return false;
+    if (p.status !== 'online') return false;
+    
+    const now = Date.now();
+    let lastSeenMillis = 0;
+    
+    try {
+      if (p.lastSeen && typeof p.lastSeen.toMillis === 'function') {
+        lastSeenMillis = p.lastSeen.toMillis();
+      } else if (p.lastSeen?.seconds) {
+        lastSeenMillis = p.lastSeen.seconds * 1000;
+      }
+    } catch (e) {
+      return true; // Fallback to trust status if timestamp parsing fails
+    }
+
+    return (now - lastSeenMillis) < 45000; // 45s threshold
+  };
+
+  // Real-time Status Subscriptions for all contacts
+  const trackedIds = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!user) return;
+
+    const allIds = new Set<string>();
+    chats.forEach(c => c.participants?.forEach((p: string) => { if (p !== user.uid) allIds.add(p); }));
+    friends.forEach(f => { if (f.uid) allIds.add(f.uid); });
+
+    const newIds = Array.from(allIds).filter(id => !trackedIds.current.has(id));
+    if (newIds.length === 0) return;
+
+    const unsubs: (() => void)[] = [];
+    newIds.forEach(id => {
+      trackedIds.current.add(id);
+      const unsub = onSnapshot(doc(db, 'users', id), (snap) => {
+        if (snap.exists()) {
+          setUserProfiles(prev => ({ ...prev, [id]: snap.data() }));
+        }
+      });
+      unsubs.push(unsub);
+    });
+
+    return () => {
+      // In a real app we might want to cleanup differently, 
+      // but for this turn we keep them alive for the session
+    };
+  }, [chats, friends, user]);
+  const syncedIds = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!user || chats.length === 0) return;
+    
+    chats.forEach(async (chat) => {
+      if (chat.type === 'individual') {
+        const otherId = chat.participants?.find((p: string) => p !== user.uid);
+        if (otherId && !friends.find(f => f.uid === otherId) && !syncedIds.current.has(otherId)) {
+          const otherDetails = chat.participantDetails?.[otherId] || userProfiles[otherId];
+          if (otherDetails?.name || otherDetails?.displayName) {
+            syncedIds.current.add(otherId);
+            try {
+              // Only sync if we have at least a name
+              await setDoc(doc(db, 'users', user.uid, 'friends', otherId), {
+                uid: otherId,
+                displayName: otherDetails.name || otherDetails.displayName,
+                profilePic: otherDetails.pic || otherDetails.profilePic || '',
+                timestamp: serverTimestamp()
+              });
+            } catch (e) {
+              // Silently handle sync errors to prevent crash
+            }
+          }
+        }
+      }
+    });
+  }, [chats, user, friends]);
 
   // Discover Online Users - Filtered
   useEffect(() => {
@@ -95,13 +171,35 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
       const q = query(
         collection(db, 'users'),
         where('status', '==', 'online'),
-        limit(50)
+        limit(100)
       );
       
       const unsubscribe = onSnapshot(q, (snapshot) => {
+        const now = Date.now();
+        const threshold = 45000; // 45s stale threshold
+
         setDiscoverUsers(snapshot.docs
           .map(doc => doc.data())
-          .filter(u => u.uid !== user.uid && !connections.has(u.uid))
+          .filter(u => {
+            const isMe = u.uid === user.uid;
+            const isAlreadyConnected = connections.has(u.uid);
+            
+            // Presence Verification
+            let lastSeenMillis = 0;
+            try {
+              if (u.lastSeen && typeof u.lastSeen.toMillis === 'function') {
+                lastSeenMillis = u.lastSeen.toMillis();
+              } else if (u.lastSeen?.seconds) {
+                lastSeenMillis = u.lastSeen.seconds * 1000;
+              }
+            } catch (e) {
+              lastSeenMillis = now; // Assume online if error
+            }
+
+            const isActuallyOnline = (now - lastSeenMillis) < threshold;
+
+            return !isMe && !isAlreadyConnected && isActuallyOnline;
+          })
         );
       });
       return unsubscribe;
@@ -158,7 +256,7 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
   const acceptRequest = async (req: any) => {
     if (!user) return;
     
-    // Create individual chat with participant details for better UI resolution
+    // Create individual chat
     await addDoc(collection(db, 'chats'), {
       type: 'individual',
       participants: [user.uid, req.fromId],
@@ -169,8 +267,50 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
       createdAt: serverTimestamp()
     });
 
-    // Delete the request document so it disappears from the list
+    // Add to friends collection for both (to keep contact even if chat is deleted)
+    await setDoc(doc(db, 'users', user.uid, 'friends', req.fromId), {
+      uid: req.fromId,
+      displayName: req.fromName,
+      profilePic: req.fromPic,
+      timestamp: serverTimestamp()
+    });
+    
+    await setDoc(doc(db, 'users', req.fromId, 'friends', user.uid), {
+      uid: user.uid,
+      displayName: profile?.displayName,
+      profilePic: profile?.profilePic,
+      timestamp: serverTimestamp()
+    });
+
+    // Delete the request document
     await deleteDoc(doc(db, 'friendRequests', req.id));
+  };
+
+  const startChat = async (friend: any) => {
+    if (!user) return;
+    
+    // Check if chat already exists
+    const q = query(collection(db, 'chats'), 
+      where('type', '==', 'individual'), 
+      where('participants', 'array-contains', user.uid));
+    const snap = await getDocs(q);
+    const existing = snap.docs.find(d => d.data().participants.includes(friend.uid));
+    
+    if (existing) {
+      onChatSelect({ id: existing.id, ...existing.data() });
+    } else {
+      const newChat = await addDoc(collection(db, 'chats'), {
+        type: 'individual',
+        participants: [user.uid, friend.uid],
+        participantDetails: {
+          [user.uid]: { name: profile?.displayName, pic: profile?.profilePic },
+          [friend.uid]: { name: friend.displayName, pic: friend.profilePic }
+        },
+        createdAt: serverTimestamp()
+      });
+      onChatSelect({ id: newChat.id, participants: [user.uid, friend.uid] });
+    }
+    setActiveTab('chats');
   };
 
   const createGroup = async () => {
@@ -336,7 +476,7 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
                       </div>
                     )}
                   </div>
-                  <div className="absolute bottom-0 right-0 w-3 h-3 border-2 border-white dark:border-zinc-950 rounded-full status-online"></div>
+                  <div className={`absolute bottom-0 right-0 w-3 h-3 border-2 border-white dark:border-zinc-950 rounded-full ${isUserOnline(otherParticipantId) ? 'status-online' : 'bg-slate-400'}`}></div>
                 </div>
                 <div className="flex-1 min-w-0 text-left">
                   <div className="flex justify-between items-center mb-0.5">
@@ -365,7 +505,7 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
         {activeTab === 'discover' && (
           <div className="p-3 grid grid-cols-1 gap-3">
             <h3 className="text-[10px] font-black uppercase tracking-widest text-wa-teal dark:text-wa-green/60 px-1 mb-1">
-              Active Protocol Members
+              Online Users
             </h3>
             {discoverUsers.length > 0 ? (
               discoverUsers.map(u => (
@@ -376,9 +516,12 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
                       <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-wa-green border-2 border-white dark:border-zinc-900 rounded-full" />
                     </div>
                     <div className="min-w-0">
-                      <div className="flex items-center gap-1">
-                        <p className="text-sm font-bold truncate dark:text-slate-100">{u.displayName}</p>
-                        <CheckCircle2 className="w-3 h-3 text-blue-500 fill-blue-500/10" />
+                      <div className="flex flex-col">
+                        <div className="flex items-center gap-1">
+                          <p className="text-sm font-bold truncate dark:text-slate-100">{u.displayName}</p>
+                          <CheckCircle2 className="w-3 h-3 text-blue-500 fill-blue-500/10" />
+                        </div>
+                        <p className="text-[9px] text-wa-green font-black uppercase tracking-tighter">Online User</p>
                       </div>
                       <p className="text-[10px] text-zinc-500 line-clamp-1 italic">"{u.bio || "Secure end-to-end messaging"}"</p>
                     </div>
@@ -394,7 +537,7 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
             ) : (
               <div className="flex flex-col items-center justify-center p-8 text-center opacity-40 grayscale">
                 <Compass className="w-12 h-12 mb-4" />
-                <p className="text-xs font-bold leading-relaxed">No other online nodes detected.<br/>Note: You must use different accounts to see each other.</p>
+                <p className="text-xs font-bold leading-relaxed">No other online users found.<br/>Note: You must use different accounts to see each other.</p>
               </div>
             )}
           </div>
@@ -423,7 +566,7 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
         ))}
 
         {activeTab === 'search' && searchResults.map(u => (
-          <div key={u.uid} className="p-4 bg-slate-50 dark:bg-zinc-900/50 p-4 rounded-2xl border border-slate-100 dark:border-zinc-800 flex items-center justify-between mb-2 mx-3 mt-2">
+          <div key={u.uid} className="p-4 bg-slate-50 dark:bg-zinc-900/50 rounded-2xl border border-slate-100 dark:border-zinc-800 flex items-center justify-between mb-2 mx-3 mt-2">
              <div className="flex items-center gap-3">
               <img src={u.profilePic || u.photoURL} className="w-12 h-12 rounded-full object-cover shadow-sm" />
               <div>
@@ -436,7 +579,38 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
             </button>
           </div>
         ))}
+
+        { activeTab === 'friends' && (
+            <div className="p-3">
+              <h3 className="text-[10px] font-black uppercase tracking-widest text-wa-teal dark:text-wa-green/60 px-1 mb-2">My Contacts</h3>
+              {friends.length > 0 ? (
+                friends.map(f => (
+                  <button
+                    key={f.id}
+                    onClick={() => startChat(f)}
+                    className="w-full flex items-center justify-between p-3 bg-slate-50 dark:bg-zinc-900/50 rounded-xl mb-2 hover:bg-wa-green/10 transition-colors border border-transparent hover:border-wa-green/20"
+                  >
+                    <div className="flex items-center gap-3">
+                      <img src={f.profilePic} className="w-10 h-10 rounded-full object-cover" />
+                      <div className="text-left">
+                        <p className="text-sm font-bold dark:text-slate-200">{f.displayName}</p>
+                        <p className={`text-[10px] font-black uppercase tracking-tighter ${isUserOnline(f.uid) ? 'text-wa-green' : 'text-zinc-500'}`}>
+                          {isUserOnline(f.uid) ? 'Online User' : 'Offline User'}
+                        </p>
+                      </div>
+                    </div>
+                    <MessageSquare className="w-4 h-4 text-wa-green" />
+                  </button>
+                ))
+              ) : (
+                <div className="flex flex-col items-center justify-center p-8 text-center opacity-40">
+                  <Users className="w-10 h-10 mb-2" />
+                  <p className="text-xs">No contacts yet.</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
-    </div>
-  );
-}
+    );
+  }

@@ -19,6 +19,7 @@ interface ChatWindowProps {
 export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
   const { user, profile } = useChat();
   const { theme } = useTheme();
+  const [liveChat, setLiveChat] = useState<any>(chat);
   const [messages, setMessages] = useState<any[]>([]);
   const [message, setMessage] = useState('');
   const [showEmoji, setShowEmoji] = useState(false);
@@ -27,8 +28,43 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
   const [gifs, setGifs] = useState<any[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
+  const [otherProfile, setOtherProfile] = useState<any>(null);
+  const [forceUpdate, setForceUpdate] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Trigger re-render for status staleness periodically
+  useEffect(() => {
+    const timer = setInterval(() => setForceUpdate(s => s + 1), 10000); // 10s check
+    return () => clearInterval(timer);
+  }, []);
+
+  const isOtherOnline = () => {
+    if (!otherProfile || otherProfile.status !== 'online') return false;
+    const now = Date.now();
+    let lastSeenMillis = 0;
+    try {
+      if (otherProfile.lastSeen && typeof otherProfile.lastSeen.toMillis === 'function') {
+        lastSeenMillis = otherProfile.lastSeen.toMillis();
+      } else if (otherProfile.lastSeen?.seconds) {
+        lastSeenMillis = otherProfile.lastSeen.seconds * 1000;
+      }
+    } catch (e) {
+      return true;
+    }
+    return (now - lastSeenMillis) < 45000; // 45s threshold
+  };
+
+  // Listen for current chat document updates
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'chats', chat.id), (snap) => {
+      if (snap.exists()) {
+        setLiveChat({ id: snap.id, ...snap.data() });
+      }
+    });
+    return () => unsub();
+  }, [chat.id]);
 
   // Listen for messages
   useEffect(() => {
@@ -58,7 +94,18 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
     return () => clearTimeout(timer);
   }, [gifSearch, showGifs]);
 
-  // Messages reading (Seen feedback) logic
+  // Listen for other participant profile if not in details
+  useEffect(() => {
+    const otherId = chat.participants?.find((id: string) => id !== user?.uid);
+    if (!otherId) return;
+    
+    const unsub = onSnapshot(doc(db, 'users', otherId), (snap) => {
+      if (snap.exists()) {
+        setOtherProfile(snap.data());
+      }
+    });
+    return () => unsub();
+  }, [chat.id, chat.participants, user?.uid]);
   useEffect(() => {
     if (!user || messages.length === 0) return;
     
@@ -75,7 +122,20 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
         'lastMessage.seen': true
       });
     }
-  }, [messages, user, chat.id]);
+
+    // Vanish Mode: Mark messages to be cleared when chat closes
+    return () => {
+      if (liveChat.disappearingMode) {
+        messages.forEach(async (m) => {
+          if (m.seenBy?.length >= 2) {
+            try {
+              await deleteDoc(doc(db, 'chats', chat.id, 'messages', m.id));
+            } catch (e) { /* ignore */ }
+          }
+        });
+      }
+    };
+  }, [messages, user, chat.id, liveChat.disappearingMode]);
 
   const sendMessage = async (e?: React.FormEvent, customData?: any) => {
     e?.preventDefault();
@@ -149,6 +209,17 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
     }
   };
 
+  const toggleDisappearingMode = async () => {
+    try {
+      await updateDoc(doc(db, 'chats', chat.id), {
+        disappearingMode: !liveChat.disappearingMode
+      });
+      setShowMenu(false);
+    } catch (err) {
+      console.error("Failed to toggle disappearing mode", err);
+    }
+  };
+
   const getYoutubeId = (url: string) => {
     const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
     const match = url.match(regExp);
@@ -186,18 +257,15 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
                <User className="w-6 h-6 text-white/50" />
              )}
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 text-left">
             <h2 className="text-sm font-bold truncate tracking-tight">
-              {chat.name || (chat.type === 'individual' ? (
-                (() => {
-                  const otherId = chat.participants?.find((id: string) => id !== user?.uid);
-                  return chat.participantDetails?.[otherId]?.name || "Secure Profile";
-                })()
-              ) : "Security Group")}
+              {chat.type === 'group' ? (chat.name || "Security Group") : (otherProfile?.displayName || chat.participantDetails?.[chat.participants?.find((id: string) => id !== user?.uid)]?.name || "Secure Profile")}
             </h2>
             <div className="flex items-center gap-1">
-              <div className="w-2 h-2 bg-wa-green rounded-full animate-pulse shadow-[0_0_5px_rgba(37,211,102,1)]" />
-              <p className="text-[10px] opacity-80">Online Protocol Active</p>
+              <div className={`w-2 h-2 rounded-full shadow-md ${isOtherOnline() ? 'bg-wa-green animate-pulse shadow-wa-green/50' : 'bg-slate-400'}`} />
+              <p className="text-[10px] opacity-80 font-bold uppercase tracking-tight">
+                {isOtherOnline() ? 'Online User' : 'Offline User'}
+              </p>
             </div>
           </div>
         </div>
@@ -206,16 +274,50 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
             <CheckCircle2 className="w-3 h-3 text-wa-green" />
             End-to-end Encrypted
           </div>
-          <button 
-            onClick={deleteChat}
-            className="p-2 hover:bg-white/10 rounded-full transition-all opacity-70 text-red-100 hover:text-red-400"
-            title="Delete Chat"
-          >
-            <Trash2 className="w-5 h-5" />
-          </button>
-          <button className="p-2 hover:bg-white/10 rounded-full transition-all opacity-70">
-            <MoreVertical className="w-5 h-5" />
-          </button>
+          <div className="relative">
+            <button 
+              onClick={() => setShowMenu(!showMenu)}
+              className={`p-2 rounded-full transition-all ${showMenu ? 'bg-white/20' : 'hover:bg-white/10'} opacity-70`}
+            >
+              <MoreVertical className="w-5 h-5" />
+            </button>
+            <AnimatePresence>
+              {showMenu && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9, y: -20 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.9, y: -20 }}
+                  className="absolute right-0 mt-2 w-56 bg-white dark:bg-wa-panel-dark rounded-xl shadow-2xl overflow-hidden z-30 border border-slate-200 dark:border-slate-800"
+                >
+                  <button 
+                    onClick={toggleDisappearingMode}
+                    className="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-wa-panel-light/10 transition-colors"
+                  >
+                    <div className="flex flex-col items-start gap-0.5">
+                      <span className="text-[13px] font-bold dark:text-slate-200">Disappearing Messages</span>
+                      <span className={`text-[10px] font-black uppercase ${liveChat.disappearingMode ? 'text-wa-green' : 'text-zinc-500'}`}>
+                        {liveChat.disappearingMode ? 'Active' : 'Disabled'}
+                      </span>
+                    </div>
+                    <div className={`w-11 h-6 rounded-full relative transition-all duration-300 ${liveChat.disappearingMode ? 'bg-wa-green shadow-[0_0_10px_rgba(37,211,102,0.3)]' : 'bg-slate-300 dark:bg-zinc-700'}`}>
+                      <motion.div 
+                        animate={{ x: liveChat.disappearingMode ? 22 : 2 }}
+                        transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                        className="absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm" 
+                      />
+                    </div>
+                  </button>
+                  <button 
+                    onClick={deleteChat}
+                    className="w-full flex items-center gap-3 p-4 hover:bg-red-50 dark:hover:bg-red-500/10 text-red-500 transition-colors border-t border-slate-100 dark:border-slate-800"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    <span className="text-[13px] font-bold">Delete This Chat</span>
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
       </div>
 

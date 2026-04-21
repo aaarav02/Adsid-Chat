@@ -49,15 +49,32 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     
     // Initial online status set
     const setOnline = async () => {
-      const snap = await getDoc(userRef);
-      if (snap.exists()) {
+      try {
         await updateDoc(userRef, {
           status: 'online',
           lastSeen: serverTimestamp()
         });
-      }
+      } catch (e) { /* ignore */ }
     };
+    
+    // Inactivity/Tab close logic
+    const setOffline = async () => {
+      try {
+        await updateDoc(userRef, {
+          status: 'offline',
+          lastSeen: serverTimestamp()
+        });
+      } catch (e) { /* ignore */ }
+    };
+
     setOnline();
+
+    // Heartbeat: Update lastSeen every 10s to ensure "Live" status
+    const heartbeat = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        setOnline();
+      }
+    }, 10000);
 
     // Listen for profile updates
     const unsubProfile = onSnapshot(userRef, (snap) => {
@@ -69,21 +86,24 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
     });
 
-    // Inactivity/Tab close logic
-    const setOffline = () => {
-      // Use navigator.sendBeacon or a quick fire-and-forget update if possible
-      // but for simplicity in this env just updateDoc
-      updateDoc(userRef, {
-        status: 'offline',
-        lastSeen: serverTimestamp()
-      });
+    const handlePresence = () => {
+      if (document.visibilityState === 'hidden') {
+        setOffline();
+      } else {
+        setOnline();
+      }
     };
 
     window.addEventListener('beforeunload', setOffline);
+    window.addEventListener('visibilitychange', handlePresence);
+    window.addEventListener('offline', setOffline);
     
     return () => {
+      clearInterval(heartbeat);
       unsubProfile();
       window.removeEventListener('beforeunload', setOffline);
+      window.removeEventListener('visibilitychange', handlePresence);
+      window.removeEventListener('offline', setOffline);
       setOffline();
     };
   }, [user]);

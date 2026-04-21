@@ -19,6 +19,10 @@ service cloud.firestore {
       return isSignedIn();
     }
 
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.email == 'extremear762@gmail.com';
+    }
+
     function isOwner(userId) {
       return isVerified() && request.auth.uid == userId;
     }
@@ -57,7 +61,8 @@ service cloud.firestore {
              data.type in ['individual', 'group'] &&
              data.participants is list &&
              data.participants.size() >= 1 && data.participants.size() <= 100 &&
-             request.auth.uid in data.participants;
+             (request.auth.uid in data.participants || isAdmin()) &&
+             (!('disappearingMode' in data) || data.disappearingMode is bool);
     }
 
     function isValidMessage(data) {
@@ -94,15 +99,18 @@ service cloud.firestore {
       allow get: if isValidId(userId) && isVerified();
       allow list: if isVerified();
       allow create: if isValidId(userId) && isOwner(userId) && isValidUser(incoming());
-      allow update: if isValidId(userId) && isOwner(userId) && isValidUser(incoming()) && (
-        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'bio', 'status', 'lastSeen', 'profilePic', 'gender', 'age', 'isRegistered', 'isTypingIn'])
-      );
+      allow update: if isValidId(userId) && isOwner(userId) && isValidUser(incoming());
+
+      // Friends subcollection
+      match /friends/{friendId} {
+        allow read, write: if isOwner(userId);
+      }
     }
 
     // Friend Requests
     match /friendRequests/{requestId} {
       allow get: if isValidId(requestId) && isVerified() && (existing().fromId == request.auth.uid || existing().toId == request.auth.uid);
-      allow list: if isVerified() && (existing().fromId == request.auth.uid || existing().toId == request.auth.uid);
+      allow list: if isVerified() && (existing().fromId == request.auth.uid || existing().toId == request.auth.uid || isAdmin());
       allow create: if isVerified() && isValidId(requestId) && isValidFriendRequest(incoming()) &&
                     exists(/databases/$(database)/documents/users/$(incoming().toId));
       allow update: if isVerified() && isValidId(requestId) && (
@@ -115,30 +123,31 @@ service cloud.firestore {
          incoming().diff(existing()).affectedKeys().hasOnly(['status']) &&
          incoming().status == 'cancelled')
       );
-      allow delete: if false;
+      allow delete: if isVerified() && (existing().fromId == request.auth.uid || existing().toId == request.auth.uid || isAdmin());
     }
 
     // Chats
     match /chats/{chatId} {
       function isParticipant() {
-        return isVerified() && request.auth.uid in existing().participants;
+        return isVerified() && (request.auth.uid in existing().participants || isAdmin());
       }
 
       allow get: if isValidId(chatId) && isParticipant();
-      allow list: if isParticipant();
+      allow list: if isParticipant() || isAdmin();
       allow create: if isVerified() && isValidId(chatId) && isValidChat(incoming());
-      allow update: if isValidId(chatId) && isParticipant() && (
-        // Action: Update lastMessage
-        (incoming().diff(existing()).affectedKeys().hasOnly(['lastMessage']) && 
-         incoming().lastMessage.keys().hasAll(['content', 'timestamp'])) ||
-        // Action: Edit group metadata
-        (existing().type == 'group' && incoming().diff(existing()).affectedKeys().hasAny(['name', 'description', 'participants']))
+      allow update: if isValidId(chatId) && (isParticipant() || isAdmin()) && (
+        // Allow updating lastMessage, disappearingMode, and metadata
+        incoming().diff(existing()).affectedKeys().hasAny(['lastMessage', 'disappearingMode', 'name', 'description', 'participants']) && (
+           // Ensure it is still a valid chat state
+           isValidChat(incoming())
+        )
       );
+      allow delete: if isValidId(chatId) && (isParticipant() || isAdmin());
 
       // Messages subcollection
       match /messages/{messageId} {
         function canInteractWithChat() {
-          return isVerified() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+          return isVerified() && (request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants || isAdmin());
         }
 
         allow get: if isValidId(chatId) && isValidId(messageId) && canInteractWithChat();
@@ -154,7 +163,7 @@ service cloud.firestore {
             incoming().diff(existing()).affectedKeys().hasOnly(['content', 'timestamp', 'savedBy', 'seenBy', 'type', 'fileName', 'fileUrl']))
         );
         allow delete: if isVerified() && isValidId(chatId) && isValidId(messageId) && (
-          existing().senderId == request.auth.uid
+          existing().senderId == request.auth.uid || isAdmin()
         );
       }
     }

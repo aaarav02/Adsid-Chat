@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Send, Smile, Paperclip, MoreVertical, ChevronLeft, Check, CheckCheck, Save, Trash2, User, CheckCircle2, Image as ImageIcon, Gift, X, Play } from 'lucide-react';
 import { db, auth } from '../lib/firebase';
 import { useTheme } from '../contexts/ThemeContext';
-import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, arrayUnion, arrayRemove, deleteDoc, getDocs } from 'firebase/firestore';
 import EmojiPicker from 'emoji-picker-react';
 import { format } from 'date-fns';
 import { useChat } from '../contexts/ChatContext';
@@ -124,6 +124,31 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
     reader.readAsDataURL(file);
   };
 
+  const deleteMessage = async (msgId: string) => {
+    if (!confirm("Are you sure you want to delete this message?")) return;
+    try {
+      await deleteDoc(doc(db, 'chats', chat.id, 'messages', msgId));
+    } catch (err) {
+      console.error("Failed to delete message", err);
+    }
+  };
+
+  const deleteChat = async () => {
+    if (!confirm("Delete this entire chat? This cannot be undone.")) return;
+    try {
+      // Delete all messages first
+      const msgs = await getDocs(collection(db, 'chats', chat.id, 'messages'));
+      for (const m of msgs.docs) {
+        await deleteDoc(m.ref);
+      }
+      // Delete chat document
+      await deleteDoc(doc(db, 'chats', chat.id));
+      onBack();
+    } catch (err) {
+      console.error("Failed to delete chat", err);
+    }
+  };
+
   const getYoutubeId = (url: string) => {
     const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
     const match = url.match(regExp);
@@ -181,6 +206,13 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
             <CheckCircle2 className="w-3 h-3 text-wa-green" />
             End-to-end Encrypted
           </div>
+          <button 
+            onClick={deleteChat}
+            className="p-2 hover:bg-white/10 rounded-full transition-all opacity-70 text-red-100 hover:text-red-400"
+            title="Delete Chat"
+          >
+            <Trash2 className="w-5 h-5" />
+          </button>
           <button className="p-2 hover:bg-white/10 rounded-full transition-all opacity-70">
             <MoreVertical className="w-5 h-5" />
           </button>
@@ -257,13 +289,25 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
                    {isSaved && <Save className="w-2.5 h-2.5 text-wa-green fill-current" />}
                 </div>
 
-                {/* Save Interaction - Swipe logic or context menu? User asked for swipe in desc but UI needs to be clear */}
-                <button 
-                  onClick={() => saveMessage(msg.id, isSaved)}
-                  className="absolute -right-2 top-0 translate-x-full opacity-0 group-hover:opacity-100 p-1 hover:text-wa-green transition-all"
-                >
-                  <Save className={`w-3.5 h-3.5 ${isSaved ? 'fill-current text-wa-green' : 'text-slate-400'}`} />
-                </button>
+                {/* Interactions */}
+                <div className="absolute -right-2 top-0 translate-x-full flex flex-col items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                  <button 
+                    onClick={() => saveMessage(msg.id, isSaved)}
+                    className="p-1 hover:text-wa-green"
+                    title="Save message"
+                  >
+                    <Save className={`w-3.5 h-3.5 ${isSaved ? 'fill-current text-wa-green' : 'text-slate-400'}`} />
+                  </button>
+                  {isOwn && (
+                    <button 
+                      onClick={() => deleteMessage(msg.id)}
+                      className="p-1 hover:text-red-500"
+                      title="Delete message"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-slate-400 hover:text-red-500" />
+                    </button>
+                  )}
+                </div>
               </div>
             </motion.div>
           );

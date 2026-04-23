@@ -16,6 +16,7 @@ export default function ProfileSetup({ onComplete }: { onComplete?: () => void }
     profilePic: profile?.profilePic || user?.photoURL || ''
   });
   const [loading, setLoading] = useState(false);
+  const [zoom, setZoom] = useState(1);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -88,24 +89,49 @@ export default function ProfileSetup({ onComplete }: { onComplete?: () => void }
         <form onSubmit={handleSubmit} className="space-y-10">
           <div className="flex flex-col md:flex-row gap-12 items-center md:items-start">
             {/* Avatar Selection Placeholder */}
-            <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
-              <input 
-                type="file" 
-                ref={fileInputRef} 
-                onChange={handleImageChange} 
-                className="hidden" 
-                accept="image/*"
-              />
-              <div className="w-40 h-40 rounded-full bg-slate-100 dark:bg-zinc-900 flex items-center justify-center overflow-hidden border-4 border-white dark:border-zinc-800 ring-8 ring-wa-green/5 shadow-2xl shadow-wa-green/10 transition-all group-hover:ring-wa-green/10">
-                {formData.profilePic ? (
-                  <img src={formData.profilePic} alt="Avatar" className="w-full h-full object-cover" />
-                ) : (
-                  <Camera className="w-12 h-12 text-slate-300 dark:text-zinc-700" />
-                )}
+            <div className="flex flex-col items-center gap-6">
+              <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+                <input 
+                  type="file" 
+                  ref={fileInputRef} 
+                  onChange={handleImageChange} 
+                  className="hidden" 
+                  accept="image/*"
+                />
+                <div className="w-40 h-40 rounded-full bg-slate-100 dark:bg-zinc-900 flex items-center justify-center overflow-hidden border-4 border-white dark:border-zinc-800 ring-8 ring-wa-green/5 shadow-2xl shadow-wa-green/10 transition-all group-hover:ring-wa-green/10">
+                  {formData.profilePic ? (
+                    <img 
+                      src={formData.profilePic} 
+                      alt="Avatar" 
+                      className="w-full h-full object-cover transition-transform duration-200" 
+                      style={{ transform: `scale(${zoom})` }}
+                    />
+                  ) : (
+                    <Camera className="w-12 h-12 text-slate-300 dark:text-zinc-700" />
+                  )}
+                </div>
+                <div className="absolute bottom-2 right-2 bg-wa-teal p-3 rounded-full border-4 border-white dark:border-wa-panel-dark group-hover:scale-110 transition-transform cursor-pointer shadow-lg shadow-wa-teal/30">
+                  <Camera className="w-5 h-5 text-white" />
+                </div>
               </div>
-              <div className="absolute bottom-2 right-2 bg-wa-teal p-3 rounded-full border-4 border-white dark:border-wa-panel-dark group-hover:scale-110 transition-transform cursor-pointer shadow-lg shadow-wa-teal/30">
-                <Camera className="w-5 h-5 text-white" />
-              </div>
+
+              {formData.profilePic && (
+                <div className="w-full max-w-[200px] space-y-2">
+                  <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-wa-teal dark:text-wa-green">
+                    <span>Selection Zoom</span>
+                    <span>{Math.round(zoom * 100)}%</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="1" 
+                    max="3" 
+                    step="0.01" 
+                    value={zoom} 
+                    onChange={(e) => setZoom(parseFloat(e.target.value))}
+                    className="w-full accent-wa-green h-1.5 bg-slate-200 dark:bg-zinc-800 rounded-lg appearance-none cursor-pointer"
+                  />
+                </div>
+              )}
             </div>
 
             <div className="flex-1 w-full space-y-6 mt-4 md:mt-0">

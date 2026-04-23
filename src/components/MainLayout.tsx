@@ -1,16 +1,24 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { X, ExternalLink, Play, Settings as SettingsIcon } from 'lucide-react';
 import Sidebar from './Sidebar';
 import ChatWindow from './ChatWindow';
 import ProfileSetup from './ProfileSetup';
+import InAppNotification from './InAppNotification';
+import SponsoredVideoView from './SponsoredVideoView';
 import { db } from '../lib/firebase';
 import { useChat } from '../contexts/ChatContext';
 import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function MainLayout() {
-  const { user, profile, appConfig } = useChat();
+  const { user, profile, appConfig, lastNotification, setLastNotification, setCurrentChatId } = useChat();
   const [selectedChat, setSelectedChat] = useState<any>(null);
   const [showSidebar, setShowSidebar] = useState(true);
+
+  // Sync currentChatId to context
+  useEffect(() => {
+    setCurrentChatId(selectedChat?.id || null);
+  }, [selectedChat, setCurrentChatId]);
 
   // Mobile responsiveness
   useEffect(() => {
@@ -32,6 +40,22 @@ export default function MainLayout() {
 
   return (
     <div className="flex flex-col h-full w-full bg-wa-bg-light dark:bg-wa-bg-dark text-slate-900 dark:text-slate-100 transition-colors">
+      {/* In-App Notifications */}
+      <InAppNotification 
+        notification={lastNotification} 
+        onClose={() => setLastNotification(null)}
+        onAction={(chatId) => {
+          // Open the chat
+          const chatDocRef = doc(db, 'chats', chatId);
+          onSnapshot(chatDocRef, (snap) => {
+            if (snap.exists()) {
+              setSelectedChat({ id: snap.id, ...snap.data() });
+              setLastNotification(null);
+            }
+          });
+        }}
+      />
+
       {/* Global Top Nav */}
       <header className="h-14 border-b border-slate-200 dark:border-slate-800 flex items-center px-4 justify-between bg-wa-panel-light dark:bg-wa-panel-dark z-50 transition-colors shrink-0">
         <div className="flex items-center gap-3">
@@ -59,16 +83,25 @@ export default function MainLayout() {
           </div>
         </div>
         <div className="flex items-center gap-4 text-xs font-medium">
-          <div 
-            onClick={() => setSelectedChat({ isProfileEdit: true })}
-            className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-zinc-900 hover:bg-slate-50 dark:hover:bg-zinc-800 rounded-full text-slate-700 dark:text-zinc-300 border border-slate-200 dark:border-zinc-800 cursor-pointer transition-all shadow-sm"
-          >
+          <div className="flex items-center gap-1">
+            <button 
+              onClick={() => { setSelectedChat(null); setTimeout(() => { window.dispatchEvent(new CustomEvent('switch-tab', { detail: 'settings' })); }, 100); }}
+              className="p-2 hover:bg-slate-100 dark:hover:bg-zinc-800 rounded-full text-slate-500 dark:text-zinc-400 transition-all"
+              title="Global Settings"
+            >
+              <SettingsIcon className="w-5 h-5" />
+            </button>
+            <div 
+              onClick={() => setSelectedChat({ isProfileEdit: true })}
+              className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-zinc-900 hover:bg-slate-50 dark:hover:bg-zinc-800 rounded-full text-slate-700 dark:text-zinc-300 border border-slate-200 dark:border-zinc-800 cursor-pointer transition-all shadow-sm"
+            >
             <span className="hidden sm:inline font-black">@{profile?.displayName}</span>
             <div className="w-6 h-6 rounded-full bg-slate-200 dark:bg-zinc-800 overflow-hidden ring-2 ring-wa-green/30">
                {profile?.profilePic && <img src={profile.profilePic} className="w-full h-full object-cover" />}
             </div>
           </div>
-          <div className="flex items-center gap-2 text-wa-teal dark:text-wa-green cursor-pointer">
+        </div>
+        <div className="flex items-center gap-2 text-wa-teal dark:text-wa-green cursor-pointer">
             <span className="hidden sm:inline font-black uppercase tracking-widest text-[9px]">Active</span>
             <div className="w-2 h-2 rounded-full bg-current animate-pulse shadow-md"></div>
           </div>
@@ -91,7 +124,7 @@ export default function MainLayout() {
           )}
         </AnimatePresence>
 
-        {/* Chat Window / Profile Edit */}
+        {/* Chat Window / Profile Edit / Sponsored Ad */}
         <main className={`flex-1 flex flex-col min-w-0 transition-all bg-wa-bg-light dark:bg-wa-bg-dark overflow-x-hidden`}>
           {selectedChat?.isProfileEdit ? (
             <div className="flex-1 overflow-y-auto no-scrollbar py-6 bg-wa-bg-light dark:bg-wa-bg-dark">
@@ -111,6 +144,8 @@ export default function MainLayout() {
                   <ProfileSetup onComplete={() => setSelectedChat(null)} />
                </div>
             </div>
+          ) : selectedChat?.isSponsored ? (
+            <SponsoredVideoView ad={selectedChat} onClose={() => setSelectedChat(null)} />
           ) : selectedChat ? (
             <ChatWindow chat={selectedChat} onBack={() => setSelectedChat(null)} />
           ) : (

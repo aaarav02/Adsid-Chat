@@ -78,3 +78,12 @@
 .glass {
   @apply backdrop-blur-xl bg-white/70 dark:bg-black/70 border border-slate-200 dark:border-slate-800;
 }
+
+@keyframes shadow-glow {
+  0%, 100% { box-shadow: 0 0 5px rgba(37, 211, 102, 0.5); }
+  50% { box-shadow: 0 0 15px rgba(37, 211, 102, 0.8); }
+}
+
+.shadow-glow {
+  animation: shadow-glow 2s infinite;
+}

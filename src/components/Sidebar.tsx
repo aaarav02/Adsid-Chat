@@ -1,11 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Users, UserPlus, LogOut, MessageSquare, Plus, Bell, User, Sun, Moon, Compass, CheckCircle2, CheckCheck, Trash2, ShieldAlert, X, Check, Settings, Palette, Cloud } from 'lucide-react';
+import ReactPlayer from 'react-player';
+import { Search, Users, UserPlus, LogOut, MessageSquare, Plus, Bell, User, Sun, Moon, Compass, CheckCircle2, CheckCheck, Trash2, ShieldAlert, X, Check, Settings, Palette, Cloud, BellOff, Camera, Play, ChevronLeft } from 'lucide-react';
 import { auth, db } from '../lib/firebase';
 import { useChat } from '../contexts/ChatContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { collection, query, where, onSnapshot, getDocs, getDoc, addDoc, serverTimestamp, doc, updateDoc, limit, deleteDoc, writeBatch, setDoc, orderBy } from 'firebase/firestore';
 import { formatDistanceToNow } from 'date-fns';
+
+const Player = ReactPlayer as any;
 
 interface SidebarProps {
   onChatSelect: (chat: any) => void;
@@ -13,7 +16,7 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) {
-  const { user, profile, appConfig, updateAppConfig } = useChat();
+  const { user, profile, appConfig, updateAppConfig, toggleMute } = useChat();
   const { theme, toggleTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<'chats' | 'friends' | 'requests' | 'search' | 'discover' | 'settings'>('chats');
   const [searchQuery, setSearchQuery] = useState('');
@@ -23,6 +26,7 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
   const [discoverUsers, setDiscoverUsers] = useState<any[]>([]);
   const [friends, setFriends] = useState<any[]>([]);
   const [isCleaning, setIsCleaning] = useState(false);
+  const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
   const [userProfiles, setUserProfiles] = useState<Record<string, any>>({});
   const [uploadingPic, setUploadingPic] = useState(false);
   const [showGroupModal, setShowGroupModal] = useState(false);
@@ -34,6 +38,14 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
   useEffect(() => {
     setAdminConfig(appConfig);
   }, [appConfig]);
+
+  useEffect(() => {
+    const handleSwitchTab = (e: any) => {
+      if (e.detail) setActiveTab(e.detail);
+    };
+    window.addEventListener('switch-tab', handleSwitchTab);
+    return () => window.removeEventListener('switch-tab', handleSwitchTab);
+  }, []);
 
   const isAdmin = user?.email === 'c4rush.com@gmail.com' || user?.email === 'extremear762@gmail.com';
 
@@ -213,6 +225,7 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
   };
 
   return (
+    <>
     <div className="h-full flex flex-col bg-wa-panel-light dark:bg-wa-panel-dark border-r border-slate-200 dark:border-slate-800 transition-colors">
       {/* Header - WhatsApp Green/Teal */}
       <div className="bg-wa-teal dark:bg-wa-panel-dark p-4 flex flex-col gap-4 text-white dark:text-slate-200 shadow-md">
@@ -258,16 +271,16 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
       </div>
 
       {/* Tabs - WhatsApp Style Icons/Text */}
-      <div className="flex items-center bg-wa-teal dark:bg-wa-panel-dark text-white shadow-inner">
+      <div className="flex items-center bg-wa-teal dark:bg-wa-panel-dark text-white shadow-inner relative">
         {[
           { id: 'chats', icon: MessageSquare, label: 'Chats' },
+          { id: 'friends', icon: Users, label: 'Friends' },
           { id: 'discover', icon: Compass, label: 'Discover' },
           { id: 'requests', icon: Bell, label: 'Requests', count: requests.length },
-          { id: 'friends', icon: Users, label: 'Friends' },
-        ].map(tab => (
+        ].map((tab: any) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
+            onClick={() => { setActiveTab(tab.id as any); }}
             className={`flex-1 flex flex-col items-center gap-1 py-2 text-[9px] font-bold uppercase tracking-wider transition-all relative ${
               activeTab === tab.id ? 'text-wa-green' : 'text-white/60 hover:text-white'
             }`}
@@ -370,11 +383,16 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
         {activeTab === 'chats' && (chats.length > 0 ? (
           chats.map(chat => {
             const otherParticipantId = chat.participants?.find((p: string) => p !== user?.uid);
-            const otherDetails = chat.participantDetails?.[otherParticipantId] || userProfiles[otherParticipantId] || {};
+            const profileData = userProfiles[otherParticipantId] || {};
+            const participantData = chat.participantDetails?.[otherParticipantId] || {};
             
             // Priority: Stored name -> Fetched profile -> Fallback placeholder
-            const chatName = chat.name || otherDetails.name || otherDetails.displayName || (chat.type === 'individual' ? `AdSid User` : "Direct Message");
-            const chatPic = otherDetails.pic || otherDetails.profilePic || otherDetails.photoURL || null;
+            const chatName = chat.name || profileData.displayName || profileData.name || participantData.name || (chat.type === 'individual' ? `AdSid User` : "Direct Message");
+            
+            // Aggressive DP lookup: check profile first, then participant, then chat doc
+            const chatPic = chat.type === 'group' 
+              ? (chat.groupPic || chat.profilePic || null) 
+              : (profileData.profilePic || profileData.photoURL || profileData.pic || participantData.pic || participantData.profilePic || chat.profilePic || null);
             
             return (
               <button
@@ -385,20 +403,26 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
                 }`}
               >
                 <div className="relative">
-                  <div className="w-12 h-12 rounded-full bg-slate-200 dark:bg-zinc-800 overflow-hidden flex items-center justify-center border border-slate-100 dark:border-zinc-700">
-                    {chat.type === 'group' ? (
-                      <Users className="w-6 h-6 text-slate-400" />
+                  <div 
+                    className="w-12 h-12 rounded-full bg-slate-200 dark:bg-zinc-800 overflow-hidden flex items-center justify-center border border-slate-100 dark:border-zinc-700 cursor-zoom-in"
+                    onClick={(e) => { e.stopPropagation(); if (chatPic) setFullscreenImage(chatPic); }}
+                  >
+                    {chatPic ? (
+                      <img src={chatPic} className="w-full h-full object-cover" />
                     ) : (
-                      <div className="w-full h-full bg-wa-teal/10 flex items-center justify-center">
-                         {chatPic ? <img src={chatPic} className="w-full h-full object-cover" /> : <User className="text-wa-teal/40 w-6 h-6" />}
-                      </div>
+                      chat.type === 'group' ? <Users className="w-6 h-6 text-slate-400" /> : <User className="text-wa-teal/40 w-6 h-6" />
                     )}
                   </div>
-                  <div className={`absolute bottom-0 right-0 w-3 h-3 border-2 border-white dark:border-zinc-950 rounded-full ${isUserOnline(otherParticipantId) ? 'status-online' : 'bg-slate-400'}`}></div>
+                  {chat.type !== 'group' && (
+                    <div className={`absolute bottom-0 right-0 w-3 h-3 border-2 border-white dark:border-zinc-950 rounded-full ${isUserOnline(otherParticipantId) ? 'status-online' : 'bg-slate-400'}`}></div>
+                  )}
                 </div>
                 <div className="flex-1 min-w-0 text-left">
                   <div className="flex justify-between items-center mb-0.5">
-                    <h4 className="text-[13px] font-semibold truncate dark:text-slate-200">{chatName}</h4>
+                    <div className="flex items-center gap-1 min-w-0">
+                      <h4 className="text-[13px] font-semibold truncate dark:text-slate-200">{chatName}</h4>
+                      {profile?.mutedUsers?.includes(chat.id) && <BellOff className="w-2.5 h-2.5 text-red-500 shrink-0" />}
+                    </div>
                     <span className="text-[10px] text-zinc-500">
                       {chat.lastMessage?.timestamp ? formatDistanceToNow(chat.lastMessage.timestamp.toDate()) : ''}
                     </span>
@@ -421,9 +445,64 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
         ))}
 
         {activeTab === 'discover' && (
-          <div className="p-3 grid grid-cols-1 gap-3">
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-wa-teal dark:text-wa-green/60 px-1 mb-1">
-              Online Users
+          <div className="p-4 space-y-4">
+            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-wa-teal dark:text-wa-green/60 mb-2">Protocol Discovery</h3>
+            
+            {/* Advertisement Node (Global) */}
+            {appConfig.adNode?.enabled && (
+              <button 
+                onClick={() => onChatSelect({ isSponsored: true, id: 'sponsored_node', ...appConfig.adNode })}
+                className="w-full bg-white dark:bg-zinc-900 rounded-3xl shadow-xl border border-slate-200 dark:border-zinc-800 relative overflow-hidden group text-left transition-all active:scale-[0.98] hover:shadow-wa-green/10"
+              >
+                {appConfig.adNode.image && (
+                  <div className="w-full h-32 relative overflow-hidden">
+                    <img 
+                      src={appConfig.adNode.image} 
+                      className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" 
+                      referrerPolicy="no-referrer"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                    <div className="absolute bottom-3 left-4 right-4">
+                       <span className="bg-wa-green text-wa-dark-green text-[8px] font-black uppercase px-2 py-0.5 rounded tracking-widest">Sponsored Node</span>
+                       <h4 className="text-white text-sm font-bold mt-1 line-clamp-1">{appConfig.adNode.name}</h4>
+                    </div>
+                  </div>
+                )}
+                
+                <div className="p-4 relative">
+                   <div className="flex items-center justify-between">
+                      <div className="flex-1 min-w-0 pr-4">
+                        <p className="text-[11px] text-zinc-500 line-clamp-2 leading-relaxed">
+                          {appConfig.adNode.description || "Official protocol broadcast. Tap to enter secure node."}
+                        </p>
+                      </div>
+                      <div className="w-8 h-8 rounded-full bg-wa-green/10 flex items-center justify-center shrink-0 group-hover:bg-wa-green transition-all">
+                        <Play className="w-3.5 h-3.5 text-wa-green group-hover:text-wa-dark-green fill-current" />
+                      </div>
+                   </div>
+                   
+                   {appConfig.adNode.link && (
+                     <div className="mt-3 flex items-center gap-1.5 text-[9px] font-bold text-wa-teal dark:text-wa-green uppercase tracking-wider">
+                       <Compass className="w-3 h-3" />
+                       Visit Protocol Site
+                     </div>
+                   )}
+                </div>
+
+                <div className="absolute top-2 right-2 p-1.5 bg-black/40 backdrop-blur-md rounded-full border border-white/10 opacity-0 group-hover:opacity-100 transition-opacity">
+                   <X className="w-3 h-3 text-white" />
+                </div>
+              </button>
+            )}
+            
+            <div className="pt-2">
+              <p className="text-[11px] text-zinc-500 font-medium px-2 leading-relaxed">
+                Scan public nodes to expand your secure network. Sponsored nodes provide official updates and media streams.
+              </p>
+            </div>
+
+            <h3 className="text-[10px] font-black uppercase tracking-widest text-wa-teal dark:text-wa-green/60 px-1 mb-1 mt-2">
+              Online Sync Nodes
             </h3>
             {discoverUsers.length > 0 ? (
               discoverUsers.map(u => (
@@ -500,26 +579,40 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
 
         { activeTab === 'friends' && (
             <div className="p-3">
-              <h3 className="text-[10px] font-black uppercase tracking-widest text-wa-teal dark:text-wa-green/60 px-1 mb-2">My Contacts</h3>
+              <h3 className="text-[10px] font-black uppercase tracking-widest text-wa-teal dark:text-wa-green/60 px-1 mb-2">Authenticated Nodes</h3>
               {friends.length > 0 ? (
-                friends.map(f => (
-                  <button
-                    key={f.id}
-                    onClick={() => startChat(f)}
-                    className="w-full flex items-center justify-between p-3 bg-slate-50 dark:bg-zinc-900/50 rounded-xl mb-2 hover:bg-wa-green/10 transition-colors border border-transparent hover:border-wa-green/20"
-                  >
-                    <div className="flex items-center gap-3">
-                      <img src={f.profilePic} className="w-10 h-10 rounded-full object-cover" />
-                      <div className="text-left">
-                        <p className="text-sm font-bold dark:text-slate-200">{f.displayName}</p>
-                        <p className={`text-[10px] font-black uppercase tracking-tighter ${isUserOnline(f.uid) ? 'text-wa-green' : 'text-zinc-500'}`}>
-                          {isUserOnline(f.uid) ? 'Online User' : 'Offline User'}
-                        </p>
+                friends.map(f => {
+                  const p = userProfiles[f.uid] || f;
+                  return (
+                    <button
+                      key={f.id}
+                      onClick={() => startChat(f)}
+                      className="w-full flex items-center justify-between p-3 bg-slate-50 dark:bg-zinc-900/50 rounded-2xl mb-2 hover:bg-wa-green/10 transition-colors border border-slate-100 dark:border-zinc-800 shadow-sm group"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div 
+                          className="relative cursor-zoom-in group/dp"
+                          onClick={(e) => { e.stopPropagation(); setFullscreenImage(p.profilePic); }}
+                        >
+                          <img src={p.profilePic} className="w-10 h-10 rounded-full object-cover ring-2 ring-transparent group-hover/dp:ring-wa-green/30 transition-all shadow-sm" />
+                          <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white dark:border-zinc-900 ${isUserOnline(f.uid) ? 'bg-wa-green' : 'bg-slate-400'}`} />
+                        </div>
+                        <div className="text-left">
+                          <div className="flex items-center gap-1">
+                            <p className="text-sm font-bold dark:text-slate-200">{p.displayName}</p>
+                            {profile?.mutedUsers?.includes(f.uid) && <BellOff className="w-2.5 h-2.5 text-red-500" />}
+                          </div>
+                          <p className={`text-[9px] font-black uppercase tracking-tighter ${isUserOnline(f.uid) ? 'text-wa-green' : 'text-zinc-500'}`}>
+                            {isUserOnline(f.uid) ? 'Online' : 'Offline'}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                    <MessageSquare className="w-4 h-4 text-wa-green" />
-                  </button>
-                ))
+                      <div className="p-2 bg-wa-green/10 rounded-xl group-hover:bg-wa-green transition-all group-hover:text-white">
+                         <MessageSquare className="w-3.5 h-3.5 text-wa-green group-hover:text-white" />
+                      </div>
+                    </button>
+                  );
+                })
               ) : (
                 <div className="flex flex-col items-center justify-center p-8 text-center opacity-40">
                   <Users className="w-10 h-10 mb-2" />
@@ -557,7 +650,7 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
                       <div className="text-[9px] font-black uppercase text-zinc-500 tracking-widest p-4 pb-2 border-b border-slate-50 dark:border-slate-800/50">Identity Sync</div>
                       <button 
                         onClick={() => onChatSelect({ isProfileEdit: true })}
-                        className="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-zinc-900 transition-colors text-left"
+                        className="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-zinc-900 transition-colors text-left border-b border-slate-50 dark:border-slate-800/50"
                       >
                         <div className="flex items-center gap-4">
                           <img src={profile?.profilePic} className="w-12 h-12 rounded-full ring-2 ring-wa-green/20" />
@@ -568,11 +661,30 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
                         </div>
                         <Settings className="w-4 h-4 text-zinc-400" />
                       </button>
+                      
+                      {/* Personal Mute Setting */}
+                      <button 
+                        onClick={() => toggleMute('all')}
+                        className="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-zinc-900 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-wa-teal/10 rounded-lg">
+                             {profile?.muteAll ? <BellOff className="w-4 h-4 text-red-500" /> : <Bell className="w-4 h-4 text-wa-teal" />}
+                          </div>
+                          <div>
+                            <p className="text-[11px] font-bold dark:text-slate-200">Personal Silent Mode</p>
+                            <p className="text-[9px] text-zinc-500 font-medium">Mute all incoming alerts</p>
+                          </div>
+                        </div>
+                        <div className={`w-10 h-5 rounded-full relative transition-all ${profile?.muteAll ? 'bg-red-500' : 'bg-wa-green/20'}`}>
+                          <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${profile?.muteAll ? 'right-1' : 'left-1'}`} />
+                        </div>
+                      </button>
                     </div>
 
                     {/* Interface Categorization */}
                     <div className="bg-white dark:bg-wa-panel-dark rounded-2xl overflow-hidden border border-slate-100 dark:border-slate-800 shadow-sm">
-                      <div className="text-[9px] font-black uppercase text-zinc-500 tracking-widest p-4 pb-2 border-b border-slate-50 dark:border-slate-800/50">Display Protocol</div>
+                      <div className="text-[9px] font-black uppercase text-zinc-500 tracking-widest p-4 pb-2 border-b border-slate-50 dark:border-slate-800/50">Interface Protocol</div>
                       <button 
                         onClick={toggleTheme}
                         className="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-zinc-900 transition-colors"
@@ -641,40 +753,97 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
                     className="p-4 space-y-6"
                   >
                     <div className="space-y-4">
-                      <div className="space-y-1 px-1">
-                        <label className="text-[10px] font-black uppercase text-zinc-400 tracking-widest">Global Protocol Alias</label>
-                        <input 
-                          type="text" 
-                          value={adminConfig.name}
-                          onChange={e => setAdminConfig({...adminConfig, name: e.target.value})}
-                          className="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl text-sm focus:border-wa-green outline-none"
-                        />
+                      <div className="bg-wa-teal/10 p-5 rounded-[2rem] border border-wa-teal/20">
+                         <h4 className="text-[10px] font-black uppercase tracking-widest text-wa-teal mb-4 flex items-center gap-2">
+                           <Play className="w-3 h-3 fill-current" /> Sponsored Node Setup
+                         </h4>
+                         <div className="space-y-3">
+                           <label className="flex items-center gap-3 p-3 bg-slate-100/50 dark:bg-black/20 rounded-2xl cursor-pointer">
+                             <input 
+                              type="checkbox" 
+                              checked={adminConfig.adNode?.enabled} 
+                              onChange={e => setAdminConfig({...adminConfig, adNode: {...(adminConfig.adNode || {title:'',link:'',enabled:true}), enabled: e.target.checked}})}
+                              className="w-4 h-4 rounded accent-wa-teal"
+                             />
+                             <span className="text-[11px] font-bold dark:text-zinc-300">Broadcast Node Activity</span>
+                           </label>
+                           
+                           <input 
+                            type="text" 
+                            placeholder="Sponsored Title (e.g. AdSid Official)"
+                            value={adminConfig.adNode?.title || adminConfig.adNode?.name}
+                            onChange={e => setAdminConfig({...adminConfig, adNode: {...(adminConfig.adNode || {title:'',link:'',enabled:true}), title: e.target.value, name: e.target.value}})}
+                            className="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl text-xs outline-none dark:text-white"
+                           />
+                           <textarea 
+                            placeholder="Ad Description..."
+                            value={adminConfig.adNode?.description}
+                            onChange={e => setAdminConfig({...adminConfig, adNode: {...(adminConfig.adNode || {title:'',link:'',enabled:true}), description: e.target.value}})}
+                            className="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl text-xs outline-none dark:text-white h-24 no-scrollbar resize-none font-medium"
+                           />
+                           <input 
+                            type="text" 
+                            placeholder="Cover Image URL (16:9 recommended)"
+                            value={adminConfig.adNode?.image}
+                            onChange={e => setAdminConfig({...adminConfig, adNode: {...(adminConfig.adNode || {title:'',link:'',enabled:true}), image: e.target.value}})}
+                            className="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl text-xs outline-none dark:text-white"
+                           />
+                           <input 
+                            type="text" 
+                            placeholder="Direct Access Link (External)"
+                            value={adminConfig.adNode?.link}
+                            onChange={e => setAdminConfig({...adminConfig, adNode: {...(adminConfig.adNode || {title:'',link:'',enabled:true}), link: e.target.value}})}
+                            className="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl text-xs outline-none dark:text-white"
+                           />
+                           <input 
+                            type="text" 
+                            placeholder="Video Stream URL (MP4/YouTube/HLS)"
+                            value={adminConfig.adNode?.videoUrl}
+                            onChange={e => setAdminConfig({...adminConfig, adNode: {...(adminConfig.adNode || {title:'',link:'',enabled:true}), videoUrl: e.target.value}})}
+                            className="w-full bg-slate-100/50 dark:bg-black/20 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl text-xs outline-none focus:border-wa-teal dark:text-white"
+                           />
+                         </div>
                       </div>
-                      <div className="space-y-1 px-1">
-                        <label className="text-[10px] font-black uppercase text-zinc-400 tracking-widest">Vector Logo URL</label>
-                        <input 
-                          type="text" 
-                          value={adminConfig.logo}
-                          onChange={e => setAdminConfig({...adminConfig, logo: e.target.value})}
-                          className="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl text-sm focus:border-wa-green outline-none"
-                        />
+
+                      <div className="space-y-4 pt-2">
+                        <h4 className="text-[10px] font-black uppercase tracking-widest text-zinc-500 px-2">Branding Protocol</h4>
+                        <div className="space-y-3">
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-black uppercase text-zinc-400 px-2">App Name</label>
+                            <input 
+                              type="text" 
+                              value={adminConfig.name}
+                              onChange={e => setAdminConfig({...adminConfig, name: e.target.value})}
+                              className="w-full bg-slate-100/50 dark:bg-black/20 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl text-sm focus:border-wa-green outline-none dark:text-white"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-black uppercase text-zinc-400 px-2">Logo URL</label>
+                            <input 
+                              type="text" 
+                              value={adminConfig.logo}
+                              onChange={e => setAdminConfig({...adminConfig, logo: e.target.value})}
+                              className="w-full bg-slate-100/50 dark:bg-black/20 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl text-sm focus:border-wa-green outline-none dark:text-white"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-black uppercase text-zinc-400 px-2">Favicon URL</label>
+                            <input 
+                              type="text" 
+                              value={adminConfig.favicon}
+                              onChange={e => setAdminConfig({...adminConfig, favicon: e.target.value})}
+                              className="w-full bg-slate-100/50 dark:bg-black/20 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl text-sm focus:border-wa-green outline-none dark:text-white"
+                            />
+                          </div>
+                        </div>
+                        
+                        <button 
+                          onClick={() => { updateAppConfig(adminConfig); setSettingsTab('main'); }}
+                          className="w-full bg-wa-teal dark:bg-wa-green text-white dark:text-wa-dark-green h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-wa-teal/20 active:scale-95 transition-all mt-4"
+                        >
+                          Deploy Configurations
+                        </button>
                       </div>
-                      <div className="space-y-1 px-1">
-                        <label className="text-[10px] font-black uppercase text-zinc-400 tracking-widest">Favicon Protocol URL</label>
-                        <input 
-                          type="text" 
-                          value={adminConfig.favicon}
-                          onChange={e => setAdminConfig({...adminConfig, favicon: e.target.value})}
-                          className="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl text-sm focus:border-wa-green outline-none"
-                        />
-                      </div>
-                      
-                      <button 
-                        onClick={() => { updateAppConfig(adminConfig); setSettingsTab('main'); }}
-                        className="w-full bg-wa-teal dark:bg-wa-green text-white dark:text-wa-dark-green h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-wa-teal/20 active:scale-95 transition-all"
-                      >
-                        Override App Configuration
-                      </button>
                     </div>
                   </motion.div>
                 )}
@@ -684,5 +853,30 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
         )}
         </div>
       </div>
+      <AnimatePresence>
+        {fullscreenImage && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/95 z-[100] flex items-center justify-center p-4 backdrop-blur-sm"
+            onClick={() => setFullscreenImage(null)}
+          >
+            <motion.div 
+              initial={{ scale: 0.9 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.9 }}
+              className="relative max-w-2xl w-full aspect-square"
+              onClick={e => e.stopPropagation()}
+            >
+              <img src={fullscreenImage} className="w-full h-full object-contain shadow-2xl rounded-2xl border border-white/5" referrerPolicy="no-referrer" />
+              <button onClick={() => setFullscreenImage(null)} className="absolute -top-12 right-0 p-2 text-white/50 hover:text-white transition-colors">
+                <X className="w-8 h-8" />
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
     );
   }

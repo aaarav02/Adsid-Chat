@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Send, Smile, Paperclip, MoreVertical, ChevronLeft, Check, CheckCheck, Save, Trash2, User, CheckCircle2, Image as ImageIcon, Gift, X, Play, FileText, Users, UserPlus } from 'lucide-react';
+import { Send, Smile, Paperclip, MoreVertical, ChevronLeft, Check, CheckCheck, Save, Trash2, User, CheckCircle2, Image as ImageIcon, Gift, X, Play, FileText, Users, UserPlus, Bell, BellOff, ChevronDown } from 'lucide-react';
 import { db, auth } from '../lib/firebase';
 import { useTheme } from '../contexts/ThemeContext';
 import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, arrayUnion, arrayRemove, deleteDoc, getDocs, writeBatch } from 'firebase/firestore';
@@ -17,7 +17,7 @@ interface ChatWindowProps {
 }
 
 export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
-  const { user, profile } = useChat();
+  const { user, profile, toggleMute } = useChat();
   const { theme, chatBackground, setChatBackground } = useTheme();
   const [liveChat, setLiveChat] = useState<any>(chat);
   const [messages, setMessages] = useState<any[]>([]);
@@ -42,9 +42,26 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
   const [editingName, setEditingName] = useState(liveChat.name || '');
   const [editingPic, setEditingPic] = useState('');
   const [participantsProfiles, setParticipantsProfiles] = useState<Record<string, any>>({});
-  
+  const [showScrollButton, setShowScrollButton] = useState(false);
+  const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
+
+  const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
+    messagesEndRef.current?.scrollIntoView({ behavior });
+  };
+
+  useEffect(() => {
+    scrollToBottom('auto');
+  }, [chat.id]);
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    const isAtBottom = target.scrollHeight - target.scrollTop <= target.clientHeight + 100;
+    setShowScrollButton(!isAtBottom);
+  };
 
   // Trigger re-render for status staleness periodically
   useEffect(() => {
@@ -437,7 +454,12 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
             className="block bg-black/5 dark:bg-white/5 rounded-xl border-l-4 border-wa-teal dark:border-wa-green overflow-hidden mt-2 no-underline"
           >
             {msg.linkPreview.image && (
-              <img src={msg.linkPreview.image} className="w-full h-32 object-cover" referrerPolicy="no-referrer" />
+              <img 
+                src={msg.linkPreview.image} 
+                className="w-full h-32 object-cover cursor-zoom-in" 
+                referrerPolicy="no-referrer" 
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setFullscreenImage(msg.linkPreview.image); }}
+              />
             )}
             <div className="p-3">
               <h4 className="text-[13px] font-bold dark:text-white line-clamp-1">{msg.linkPreview.title}</h4>
@@ -491,7 +513,10 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
             >
               <ChevronLeft className="w-6 h-6" />
             </button>
-            <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center overflow-hidden border border-white/20 shrink-0 shadow-inner">
+            <div 
+              className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center overflow-hidden border border-white/20 shrink-0 shadow-inner cursor-zoom-in"
+              onClick={(e) => { e.stopPropagation(); setFullscreenImage(liveChat.groupPic || chat.profilePic || otherProfile?.profilePic); }}
+            >
                {(liveChat.groupPic || chat.profilePic || otherProfile?.profilePic) ? (
                  <img src={liveChat.groupPic || chat.profilePic || otherProfile?.profilePic} alt="" className="w-full h-full object-cover" />
                ) : (
@@ -533,6 +558,13 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
                       <User className="w-4 h-4 text-wa-teal dark:text-wa-green" />
                       <span className="text-[13px] font-bold">Contact Info</span>
                     </button>
+                    <button 
+                      onClick={() => { toggleMute(chat.id); setShowMenu(false); }} 
+                      className={`w-full flex items-center gap-3 p-4 hover:bg-slate-50 dark:hover:bg-wa-panel-light/10 transition-colors ${profile?.mutedUsers?.includes(chat.id) ? 'text-red-500' : ''}`}
+                    >
+                      {profile?.mutedUsers?.includes(chat.id) ? <BellOff className="w-4 h-4" /> : <Bell className="w-4 h-4" />}
+                      <span className="text-[13px] font-bold">{profile?.mutedUsers?.includes(chat.id) ? 'Muted' : 'Mute Notifications'}</span>
+                    </button>
                     <button onClick={toggleDisappearingMode} className="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-wa-panel-light/10 transition-colors">
                       <div className="flex flex-col items-start gap-0.5">
                         <span className="text-[13px] font-bold uppercase tracking-tight">Disappearing Mode</span>
@@ -551,7 +583,11 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-2 no-scrollbar relative z-0">
+        <div 
+          className="flex-1 overflow-y-auto p-4 space-y-2 no-scrollbar relative z-0" 
+          onScroll={handleScroll}
+          ref={scrollRef}
+        >
           {messages.map((msg) => {
             const isOwn = msg.senderId === user?.uid;
             const isSaved = msg.savedBy?.includes(user?.uid);
@@ -560,7 +596,14 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
                 <div className={`message-bubble max-w-[85%] sm:max-w-[70%] ${isOwn ? 'message-out' : 'message-in'} ${isSaved ? 'ring-2 ring-wa-green ring-offset-2' : ''} p-1 overflow-hidden shadow-sm group`}>
                   {!isOwn && <p className="text-[10px] font-black text-wa-teal dark:text-wa-green mb-1 px-2 pt-1">{msg.senderName}</p>}
                   <div className="px-2 py-1">
-                    {msg.type === 'image' && <img src={msg.mediaUrl} className="rounded-lg mb-2 max-w-full h-auto border border-slate-100 dark:border-slate-800" referrerPolicy="no-referrer" />}
+                    {msg.type === 'image' && (
+                      <img 
+                        src={msg.mediaUrl} 
+                        className="rounded-lg mb-2 max-w-full h-auto border border-slate-100 dark:border-slate-800 cursor-zoom-in" 
+                        referrerPolicy="no-referrer" 
+                        onClick={() => setFullscreenImage(msg.mediaUrl)}
+                      />
+                    )}
                     {msg.type === 'video' && (
                       <div className="rounded-lg mb-2 overflow-hidden border border-slate-100 dark:border-slate-800 aspect-video relative">
                         <Player url={msg.mediaUrl} width="100%" height="100%" controls={true} light={true} playIcon={<div className="bg-wa-teal p-3 rounded-full shadow-lg"><Play className="text-white fill-current" /></div>} />
@@ -589,6 +632,20 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
           })}
           <div ref={messagesEndRef} />
         </div>
+
+        <AnimatePresence>
+          {showScrollButton && (
+            <motion.button
+              initial={{ scale: 0, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0, opacity: 0 }}
+              onClick={() => scrollToBottom('smooth')}
+              className="absolute bottom-24 right-6 p-2 bg-wa-teal dark:bg-wa-green text-white dark:text-wa-dark-green rounded-full shadow-2xl z-10 border-2 border-white dark:border-zinc-900"
+            >
+              <ChevronDown className="w-5 h-5" />
+            </motion.button>
+          )}
+        </AnimatePresence>
 
         <footer className="p-2 sm:p-3 bg-[#F0F2F5] dark:bg-[#111B21] transition-colors relative">
           {/* GIF Picker Overlay */}
@@ -680,7 +737,10 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
 
             <div className="flex-1 overflow-y-auto no-scrollbar pb-10">
               <div className="flex flex-col items-center py-10 bg-white dark:bg-wa-panel-light/5 border-b border-slate-100 dark:border-slate-800/50">
-                <div className="w-40 h-40 rounded-full overflow-hidden mb-6 border-4 border-white dark:border-wa-panel-dark shadow-2xl">
+                <div 
+                  className="w-40 h-40 rounded-full overflow-hidden mb-6 border-4 border-white dark:border-wa-panel-dark shadow-2xl cursor-zoom-in"
+                  onClick={() => setFullscreenImage(liveChat.groupPic || chat.profilePic || otherProfile?.profilePic)}
+                >
                    {(liveChat.groupPic || chat.profilePic || otherProfile?.profilePic) ? (
                      <img src={liveChat.groupPic || chat.profilePic || otherProfile?.profilePic} alt="" className="w-full h-full object-cover" />
                    ) : (
@@ -821,6 +881,31 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
                 </div>
               </div>
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {fullscreenImage && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/95 z-[100] flex items-center justify-center p-4 backdrop-blur-sm"
+            onClick={() => setFullscreenImage(null)}
+          >
+            <motion.div 
+              initial={{ scale: 0.9 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.9 }}
+              className="relative max-w-4xl w-full aspect-square"
+              onClick={e => e.stopPropagation()}
+            >
+              <img src={fullscreenImage} className="w-full h-full object-contain shadow-2xl" referrerPolicy="no-referrer" />
+              <button onClick={() => setFullscreenImage(null)} className="absolute -top-12 right-0 p-2 text-white/50 hover:text-white transition-colors">
+                <X className="w-8 h-8" />
+              </button>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

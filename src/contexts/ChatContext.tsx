@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { auth, db } from '../lib/firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
-import { doc, onSnapshot, updateDoc, serverTimestamp, setDoc, getDoc } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, serverTimestamp, setDoc, getDoc, query, collection, where } from 'firebase/firestore';
 
 interface UserProfile {
   uid: string;
@@ -14,12 +14,23 @@ interface UserProfile {
   status: 'online' | 'offline';
   lastSeen: any;
   isRegistered: boolean;
+  mutedUsers?: string[];
+  muteAll?: boolean;
 }
 
 interface AppConfig {
   name: string;
   logo: string;
   favicon: string;
+  adNode?: {
+    title?: string;
+    name?: string;
+    description?: string;
+    image?: string;
+    link: string;
+    videoUrl?: string;
+    enabled: boolean;
+  };
 }
 
 interface ChatContextType {
@@ -29,6 +40,11 @@ interface ChatContextType {
   setProfile: (p: UserProfile) => void;
   appConfig: AppConfig;
   updateAppConfig: (config: Partial<AppConfig>) => Promise<void>;
+  toggleMute: (targetId: string | 'all') => Promise<void>;
+  lastNotification: { id: string; senderName: string; content: string; senderPic?: string; chatId: string; } | null;
+  setLastNotification: (n: any) => void;
+  currentChatId: string | null;
+  setCurrentChatId: (id: string | null) => void;
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -36,7 +52,15 @@ const ChatContext = createContext<ChatContextType | undefined>(undefined);
 const DEFAULT_CONFIG: AppConfig = {
   name: "Adsid Chat",
   logo: "/logo.png",
-  favicon: "/logo.png"
+  favicon: "/logo.png",
+  adNode: {
+    name: "AdSid Protocol Partner",
+    description: "Official protocol broadcast and media sync node. Securely expanding the AdSid network.",
+    image: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=1000&auto=format&fit=crop",
+    link: "https://google.com",
+    videoUrl: "https://www.w3schools.com/html/mov_bbb.mp4",
+    enabled: true
+  }
 };
 
 export function ChatProvider({ children }: { children: React.ReactNode }) {
@@ -44,6 +68,45 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfileState] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [appConfig, setAppConfig] = useState<AppConfig>(DEFAULT_CONFIG);
+  const [lastNotification, setLastNotification] = useState<any | null>(null);
+  const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+
+  // Global message listener for notifications
+  useEffect(() => {
+    if (!user || profile?.muteAll) return;
+    
+    const q = query(
+      collection(db, 'chats'), 
+      where('participants', 'array-contains', user.uid)
+    );
+
+    const unsubMessages = onSnapshot(q, (snapshot) => {
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === 'modified') {
+          const chat = { id: change.doc.id, ...change.doc.data() } as any;
+          const msg = chat.lastMessage;
+          
+          if (msg && msg.senderId !== user.uid && !msg.seen && chat.id !== currentChatId) {
+            // Check if chat is muted
+            if (profile?.mutedUsers?.includes(chat.id) || profile?.mutedUsers?.includes(msg.senderId)) return;
+
+            const otherId = chat.participants.find((p: string) => p !== user.uid);
+            const otherDetails = chat.participantDetails?.[msg.senderId] || chat.participantDetails?.[otherId] || {};
+            
+            setLastNotification({
+              id: Date.now().toString(),
+              senderName: chat.type === 'group' ? `${otherDetails.name || 'User'} @ ${chat.name}` : (otherDetails.name || "Adsid Node"),
+              content: msg.content,
+              senderPic: otherDetails.pic || otherDetails.profilePic,
+              chatId: chat.id
+            });
+          }
+        }
+      });
+    });
+
+    return () => unsubMessages();
+  }, [user, profile?.muteAll, profile?.mutedUsers, currentChatId]);
 
   // Listen for App Config
   useEffect(() => {
@@ -65,6 +128,22 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       await setDoc(doc(db, 'settings', 'appConfig'), { ...appConfig, ...newConfig }, { merge: true });
     } catch (e) {
       console.error("Config update failed", e);
+    }
+  };
+
+  const toggleMute = async (targetId: string | 'all') => {
+    if (!user || !profile) return;
+    try {
+      if (targetId === 'all') {
+        await updateDoc(doc(db, 'users', user.uid), { muteAll: !profile.muteAll });
+      } else {
+        const muted = profile.mutedUsers || [];
+        const isMuted = muted.includes(targetId);
+        const updated = isMuted ? muted.filter(id => id !== targetId) : [...muted, targetId];
+        await updateDoc(doc(db, 'users', user.uid), { mutedUsers: updated });
+      }
+    } catch (e) {
+      console.error("Mute toggle failed", e);
     }
   };
 
@@ -152,7 +231,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   }, [user]);
 
   return (
-    <ChatContext.Provider value={{ user, profile, loading, setProfile: setProfileState, appConfig, updateAppConfig }}>
+    <ChatContext.Provider value={{ 
+      user, profile, loading, setProfile: setProfileState, appConfig, updateAppConfig, toggleMute,
+      lastNotification, setLastNotification, currentChatId, setCurrentChatId
+    }}>
       {children}
     </ChatContext.Provider>
   );

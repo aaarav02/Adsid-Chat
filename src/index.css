@@ -28,7 +28,13 @@
     width: 100%;
     margin: 0;
     padding: 0;
-    position: relative;
+    position: fixed;
+    inset: 0;
+  }
+  
+  #root {
+    @apply h-full w-full overflow-x-hidden;
+    max-width: 100%;
   }
   
   body {

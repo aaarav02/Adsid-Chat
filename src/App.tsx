@@ -35,7 +35,7 @@ function AppContent() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="h-screen w-screen overflow-hidden bg-white dark:bg-wa-bg-dark text-slate-900 dark:text-white"
+        className="h-screen w-full overflow-hidden bg-white dark:bg-wa-bg-dark text-slate-900 dark:text-white"
       >
         <MainLayout />
       </motion.div>

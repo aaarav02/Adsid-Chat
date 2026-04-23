@@ -80,10 +80,10 @@ export default function MainLayout() {
         <AnimatePresence mode="wait">
           {showSidebar && (
             <motion.div
-              initial={{ x: -320, opacity: 0 }}
+              initial={{ x: -400, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
-              exit={{ x: -320, opacity: 0 }}
-              className={`w-full sm:w-80 flex-shrink-0 border-r border-slate-200 dark:border-slate-800 flex flex-col bg-wa-panel-light dark:bg-wa-panel-dark transition-all z-40`}
+              exit={{ x: -400, opacity: 0 }}
+              className={`fixed inset-0 sm:relative sm:inset-auto w-full sm:w-80 flex-shrink-0 border-r border-slate-200 dark:border-slate-800 flex flex-col bg-wa-panel-light dark:bg-wa-panel-dark transition-all z-40`}
             >
               <Sidebar onChatSelect={(chat) => setSelectedChat(chat)} selectedChatId={selectedChat?.id} />
             </motion.div>

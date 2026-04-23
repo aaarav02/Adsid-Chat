@@ -75,7 +75,7 @@ export default function MainLayout() {
         </div>
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden relative">
         {/* Sidebar - Hidden on mobile if chat selected */}
         <AnimatePresence mode="wait">
           {showSidebar && (
@@ -91,7 +91,7 @@ export default function MainLayout() {
         </AnimatePresence>
 
         {/* Chat Window / Profile Edit */}
-        <main className={`flex-1 flex flex-col min-w-0 transition-all bg-wa-bg-light dark:bg-wa-bg-dark`}>
+        <main className={`flex-1 flex flex-col min-w-0 transition-all bg-wa-bg-light dark:bg-wa-bg-dark overflow-x-hidden`}>
           {selectedChat?.isProfileEdit ? (
             <div className="flex-1 overflow-y-auto no-scrollbar py-6 bg-wa-bg-light dark:bg-wa-bg-dark">
                <div className="max-w-2xl mx-auto px-4">

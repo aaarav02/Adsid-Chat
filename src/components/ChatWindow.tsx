@@ -477,7 +477,7 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
 
   return (
     <div className={`flex h-full ${getBackgroundStyle()} relative overflow-hidden transition-colors`}>
-      <div className={`flex flex-col flex-1 h-full relative transition-all duration-300 ${showInfo ? 'mr-0 sm:mr-80 md:mr-[380px]' : ''}`}>
+      <div className={`flex flex-col flex-1 h-full relative transition-all duration-300 overflow-x-hidden ${showInfo ? 'mr-0 sm:mr-80 md:mr-[380px]' : ''}`}>
         <div className={`absolute inset-0 opacity-[0.06] dark:opacity-[0.03] pointer-events-none ${chatBackground === 'minimal' ? 'bg-[url("https://picsum.photos/seed/pattern/1000/1000")] bg-repeat' : ''}`} />
 
         <div className="h-16 bg-wa-teal dark:bg-wa-panel-dark text-white flex items-center px-4 justify-between sticky top-0 z-10 shadow-md">

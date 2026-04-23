@@ -70,12 +70,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
     setOnline();
 
-    // Heartbeat: Update lastSeen every 2 minutes to ensure "Live" status without hitting quota limits
+    // Heartbeat: Update lastSeen every 45s (Optimized for quota + realtime feel)
     const heartbeat = setInterval(() => {
       if (document.visibilityState === 'visible') {
         setOnline();
       }
-    }, 120000); // 2 minutes
+    }, 45000); 
 
     // Listen for profile updates
     const unsubProfile = onSnapshot(userRef, (snap) => {

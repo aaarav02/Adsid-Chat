@@ -88,7 +88,7 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
       if (p.lastSeen?.toMillis) lastSeenMillis = p.lastSeen.toMillis();
       else if (p.lastSeen?.seconds) lastSeenMillis = p.lastSeen.seconds * 1000;
     } catch (e) { return true; }
-    return (now - lastSeenMillis) < 45000;
+    return (now - lastSeenMillis) < 90000; // Threshold twice the heartbeat to prevent flickering
   };
 
   const trackedIds = useRef<Set<string>>(new Set());
@@ -128,7 +128,7 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
             if (u.lastSeen?.toMillis) lastSeenMillis = u.lastSeen.toMillis();
             else if (u.lastSeen?.seconds) lastSeenMillis = u.lastSeen.seconds * 1000;
           } catch (e) { lastSeenMillis = now; }
-          return (now - lastSeenMillis) < 45000;
+          return (now - lastSeenMillis) < 90000; // Threshold twice the heartbeat
         }));
       });
     };

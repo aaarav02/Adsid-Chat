@@ -3,6 +3,8 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
 import admin from "firebase-admin";
+import axios from "axios";
+import * as cheerio from "cheerio";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,7 +13,9 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Initialize Firebase Admin if possible (picks up default credentials in Cloud Run)
+  app.use(express.json());
+
+  // Initialize Firebase Admin if possible
   try {
     admin.initializeApp();
     console.log("Firebase Admin initialized");
@@ -22,6 +26,33 @@ async function startServer() {
   // API Routes
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
+  });
+
+  app.get("/api/preview", async (req, res) => {
+    const { url } = req.query;
+    if (!url || typeof url !== 'string') {
+      return res.status(400).json({ error: "URL is required" });
+    }
+
+    try {
+      const response = await axios.get(url, { 
+        timeout: 5000,
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; AdsidBot/1.0)' }
+      });
+      const html = response.data;
+      const $ = cheerio.load(html);
+
+      const metadata = {
+        title: $('meta[property="og:title"]').attr('content') || $('title').text() || url,
+        description: $('meta[property="og:description"]').attr('content') || $('meta[name="description"]').attr('content') || "",
+        image: $('meta[property="og:image"]').attr('content') || "",
+        url: url
+      };
+
+      res.json(metadata);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch metadata" });
+    }
   });
 
   // Background task for "Disappearing Chat" Cleanup

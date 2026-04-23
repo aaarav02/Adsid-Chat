@@ -1,10 +1,13 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
 type Theme = 'light' | 'dark';
+type ChatBackground = 'minimal' | 'wa-green' | 'wa-dark' | 'cyber-teal';
 
 interface ThemeContextType {
   theme: Theme;
+  chatBackground: ChatBackground;
   toggleTheme: () => void;
+  setChatBackground: (bg: ChatBackground) => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
@@ -13,6 +16,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<Theme>(() => {
     const saved = localStorage.getItem('theme');
     return (saved as Theme) || 'light';
+  });
+
+  const [chatBackground, setChatBackgroundState] = useState<ChatBackground>(() => {
+    const saved = localStorage.getItem('chatBackground');
+    return (saved as ChatBackground) || 'minimal';
   });
 
   useEffect(() => {
@@ -29,10 +37,15 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }
   }, [theme]);
 
+  useEffect(() => {
+    localStorage.setItem('chatBackground', chatBackground);
+  }, [chatBackground]);
+
   const toggleTheme = () => setTheme(prev => prev === 'light' ? 'dark' : 'light');
+  const setChatBackground = (bg: ChatBackground) => setChatBackgroundState(bg);
 
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+    <ThemeContext.Provider value={{ theme, chatBackground, toggleTheme, setChatBackground }}>
       {children}
     </ThemeContext.Provider>
   );

@@ -6,6 +6,7 @@ import { doc, onSnapshot, updateDoc, serverTimestamp, setDoc, getDoc } from 'fir
 interface UserProfile {
   uid: string;
   displayName: string;
+  protocolId?: string;
   profilePic: string;
   bio?: string;
   gender?: string;

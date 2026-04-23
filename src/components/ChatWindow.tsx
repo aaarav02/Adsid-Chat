@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Send, Smile, Paperclip, MoreVertical, ChevronLeft, Check, CheckCheck, Save, Trash2, User, CheckCircle2, Image as ImageIcon, Gift, X, Play } from 'lucide-react';
+import { Send, Smile, Paperclip, MoreVertical, ChevronLeft, Check, CheckCheck, Save, Trash2, User, CheckCircle2, Image as ImageIcon, Gift, X, Play, FileText } from 'lucide-react';
 import { db, auth } from '../lib/firebase';
 import { useTheme } from '../contexts/ThemeContext';
 import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, arrayUnion, arrayRemove, deleteDoc, getDocs } from 'firebase/firestore';
@@ -18,16 +18,18 @@ interface ChatWindowProps {
 
 export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
   const { user, profile } = useChat();
-  const { theme } = useTheme();
+  const { theme, chatBackground, setChatBackground } = useTheme();
   const [liveChat, setLiveChat] = useState<any>(chat);
   const [messages, setMessages] = useState<any[]>([]);
   const [message, setMessage] = useState('');
   const [showEmoji, setShowEmoji] = useState(false);
   const [showGifs, setShowGifs] = useState(false);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [gifSearch, setGifSearch] = useState('');
   const [gifs, setGifs] = useState<any[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [linkPreviews, setLinkPreviews] = useState<Record<string, any>>({});
   const [showMenu, setShowMenu] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -75,25 +77,36 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
       orderBy('timestamp', 'asc')
     );
     return onSnapshot(q, (snapshot) => {
-      setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      const newMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      
+      // Mention logic: check only the LATEST message coming in
+      const latest = newMessages[newMessages.length - 1];
+      if (latest && latest.senderId !== user?.uid && profile?.protocolId) {
+        if (latest.content?.includes(`@${profile.protocolId}`)) {
+           // In a real environment we could call browser notifications
+           console.log(`[Protocol Alert] Mentioned by ${latest.senderName}`);
+        }
+      }
+
+      setMessages(newMessages);
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     });
   }, [chat.id]);
 
   // GIF Search logic (Simplified public API)
   useEffect(() => {
-    if (!gifSearch || !showGifs) return;
+    if (!showGifs) return;
     const fetchGifs = async () => {
       try {
-        const res = await fetch(`https://api.giphy.com/v1/gifs/search?api_key=dc6zaTOxFJmzC&q=${gifSearch}&limit=10`);
+        const queryStr = gifSearch || 'trending';
+        const res = await fetch(`https://api.giphy.com/v1/gifs/search?api_key=dc6zaTOxFJmzC&q=${queryStr}&limit=12`);
         const data = await res.json();
         setGifs(data.data || []);
       } catch (err) {
         console.error("GIF search failed", err);
       }
     };
-    const timer = setTimeout(fetchGifs, 500);
-    return () => clearTimeout(timer);
+    fetchGifs();
   }, [gifSearch, showGifs]);
 
   // Listen for other participant profile if not in details
@@ -160,10 +173,26 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
       savedBy: []
     };
 
-    await addDoc(collection(db, 'chats', chat.id, 'messages'), msgData);
+    let finalMsgData = { ...msgData };
+    
+    // Check for link previews
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const urls = content.match(urlRegex);
+    if (urls && urls.length > 0) {
+      try {
+        const res = await fetch(`/api/preview?url=${encodeURIComponent(urls[0])}`);
+        if (res.ok) {
+          const metadata = await res.json();
+          finalMsgData = { ...finalMsgData, linkPreview: metadata } as any;
+        }
+      } catch (e) { /* ignore */ }
+    }
+
+    await addDoc(collection(db, 'chats', chat.id, 'messages'), finalMsgData);
+    
     await updateDoc(doc(db, 'chats', chat.id), {
       lastMessage: { 
-        content: customData?.type === 'image' ? '📷 Image' : (customData?.type === 'gif' ? '🎬 GIF' : content), 
+        content: customData?.type === 'image' ? '📷 Image' : (customData?.type === 'gif' ? '🎬 GIF' : (customData?.type === 'video' ? '🎥 Video' : (customData?.type === 'file' ? '📄 Document' : content))), 
         timestamp: serverTimestamp(),
         senderId: user?.uid,
         seen: false
@@ -171,16 +200,29 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
     });
   };
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (file.size > 700000) {
+      alert("Protocol Alert: File size exceeds 700KB limit for direct peer-to-peer sync. Please use cloud links.");
+      return;
+    }
+
     setUploading(true);
-    // In a real app, we would use Firebase Storage. For now, we'll use a data URL for demo purpses.
     const reader = new FileReader();
     reader.onload = async (event) => {
       const base64 = event.target?.result as string;
-      await sendMessage(undefined, { type: 'image', url: base64, content: 'Sent an image' });
+      let type: 'image' | 'video' | 'file' = 'file';
+      if (file.type.startsWith('image/')) type = 'image';
+      else if (file.type.startsWith('video/')) type = 'video';
+      
+      await sendMessage(undefined, { 
+        type, 
+        url: base64, 
+        content: `Attached ${file.name}`,
+        fileName: file.name
+      });
       setUploading(false);
     };
     reader.readAsDataURL(file);
@@ -248,11 +290,81 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
     }
   };
 
+  const renderMessageContent = (msg: any) => {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const mentionRegex = /(@[a-z0-9_]+)/g;
+
+    const parts = msg.content.split(/((?:https?:\/\/[^\s]+)|(?:@[a-z0-9_]+))/g);
+
+    return (
+      <div className="space-y-3">
+        <p className="whitespace-pre-wrap leading-relaxed dark:text-slate-200 text-[14px]">
+          {parts.map((part, i) => {
+            if (urlRegex.test(part)) {
+              return <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="text-blue-500 underline break-all">{part}</a>;
+            }
+            if (mentionRegex.test(part)) {
+              return <span key={i} className="text-wa-teal dark:text-wa-green font-black bg-wa-green/10 px-1 rounded">@{part.slice(1)}</span>;
+            }
+            return part;
+          })}
+        </p>
+
+        {/* Link Previews */}
+        {msg.linkPreview && (
+          <motion.a 
+            href={msg.linkPreview.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            initial={{ opacity: 0, y: 5 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="block bg-black/5 dark:bg-white/5 rounded-xl border-l-4 border-wa-teal dark:border-wa-green overflow-hidden mt-2 no-underline"
+          >
+            {msg.linkPreview.image && (
+              <img src={msg.linkPreview.image} className="w-full h-32 object-cover" referrerPolicy="no-referrer" />
+            )}
+            <div className="p-3">
+              <h4 className="text-[13px] font-bold dark:text-white line-clamp-1">{msg.linkPreview.title}</h4>
+              <p className="text-[11px] opacity-60 dark:text-slate-300 line-clamp-2 mt-0.5">{msg.linkPreview.description}</p>
+            </div>
+          </motion.a>
+        )}
+        
+        {msg.content.match(urlRegex)?.map((url: string, i: number) => {
+          if (isVideoLink(url)) {
+            return (
+              <div key={i} className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 aspect-video relative group">
+                <Player 
+                  url={url} 
+                  width="100%" 
+                  height="100%" 
+                  light={true}
+                  playIcon={<div className="bg-wa-teal p-3 rounded-full shadow-lg"><Play className="text-white fill-current" /></div>}
+                />
+              </div>
+            );
+          }
+          // Fetch or show cached preview
+          return null; // For simplicity, we only show previews for fresh messages in this demo
+        })}
+      </div>
+    );
+  };
+
+  const getBackgroundStyle = () => {
+    switch (chatBackground) {
+      case 'wa-green': return 'bg-[#075E54] dark:bg-[#053d37]';
+      case 'wa-dark': return 'bg-[#0B141A] dark:bg-[#070b0e]';
+      case 'cyber-teal': return 'bg-wa-teal dark:bg-wa-dark-green';
+      default: return 'bg-[#E5DDD5] dark:bg-[#0B141A]';
+    }
+  };
+
   return (
-    <div className="flex h-full bg-[#E5DDD5] dark:bg-[#0B141A] relative overflow-hidden transition-colors">
+    <div className={`flex h-full ${getBackgroundStyle()} relative overflow-hidden transition-colors`}>
       <div className={`flex flex-col flex-1 h-full relative transition-all duration-300 ${showInfo ? 'mr-0 sm:mr-80' : ''}`}>
         {/* WhatsApp Wallpaper Pattern Overlay */}
-        <div className="absolute inset-0 opacity-[0.06] dark:opacity-[0.03] pointer-events-none bg-[url('https://picsum.photos/seed/pattern/1000/1000')] bg-repeat" />
+        <div className={`absolute inset-0 opacity-[0.06] dark:opacity-[0.03] pointer-events-none ${chatBackground === 'minimal' ? 'bg-[url("https://picsum.photos/seed/pattern/1000/1000")] bg-repeat' : ''}`} />
 
         {/* Header - WhatsApp Teal */}
         <div className="h-16 bg-wa-teal dark:bg-wa-panel-dark text-white flex items-center px-4 justify-between sticky top-0 z-10 shadow-md">
@@ -375,6 +487,35 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
                     />
                   )}
 
+                  {msg.type === 'video' && (
+                    <div className="rounded-lg mb-2 overflow-hidden border border-slate-100 dark:border-slate-800 aspect-video relative group">
+                      <Player 
+                        url={msg.mediaUrl} 
+                        width="100%" 
+                        height="100%" 
+                        controls={true}
+                        light={true}
+                        playIcon={<div className="bg-wa-teal p-3 rounded-full shadow-lg"><Play className="text-white fill-current" /></div>}
+                      />
+                    </div>
+                  )}
+
+                  {msg.type === 'file' && (
+                    <a 
+                      href={msg.mediaUrl} 
+                      download={msg.fileName || 'file'}
+                      className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-zinc-900/50 rounded-xl mb-2 border border-slate-200 dark:border-slate-800"
+                    >
+                      <div className="bg-wa-teal/10 p-2 rounded-lg">
+                        <Paperclip className="w-5 h-5 text-wa-teal dark:text-wa-green" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold truncate dark:text-white uppercase tracking-tighter">{msg.fileName || 'Encrypted File'}</p>
+                        <p className="text-[9px] text-zinc-500 uppercase font-black">Sync Ready</p>
+                      </div>
+                    </a>
+                  )}
+
                   {msg.type === 'gif' && (
                     <img 
                       src={msg.mediaUrl} 
@@ -383,24 +524,7 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
                     />
                   )}
 
-                  {msg.content && !isVideoLink(msg.content) && (
-                    <p className="whitespace-pre-wrap leading-relaxed dark:text-slate-200 text-[14px]">{msg.content}</p>
-                  )}
-
-                  {msg.content && isVideoLink(msg.content) && (
-                    <div className="space-y-2">
-                       <p className="text-blue-500 underline text-xs break-all">{msg.content}</p>
-                       <div className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 aspect-video relative group">
-                         <Player 
-                            url={msg.content} 
-                            width="100%" 
-                            height="100%" 
-                            light={true}
-                            playIcon={<div className="bg-wa-teal p-3 rounded-full shadow-lg"><Play className="text-white fill-current" /></div>}
-                         />
-                       </div>
-                    </div>
-                  )}
+                  {msg.content && renderMessageContent(msg)}
                 </div>
                 
                 <div className="flex items-center justify-end gap-1 px-2 pb-1 opacity-60">
@@ -482,12 +606,51 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
           )}
         </AnimatePresence>
 
+        {/* Attachment Menu */}
+        <AnimatePresence>
+          {showAttachMenu && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8, y: 50 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.8, y: 50 }}
+              className="absolute bottom-20 left-12 w-48 bg-white dark:bg-wa-panel-dark rounded-[2rem] shadow-2xl z-50 p-3 flex flex-col gap-2 border border-slate-200 dark:border-slate-800"
+            >
+              {[
+                { label: 'Photos', icon: ImageIcon, color: 'bg-emerald-500', accept: 'image/*' },
+                { label: 'Videos', icon: Play, color: 'bg-blue-500', accept: 'video/*' },
+                { label: 'Documents', icon: FileText, color: 'bg-orange-500', accept: 'application/pdf,.doc,.docx,.txt' },
+              ].map(opt => (
+                <button
+                  key={opt.label}
+                  onClick={() => {
+                    if (fileInputRef.current) {
+                      fileInputRef.current.accept = opt.accept;
+                      fileInputRef.current.click();
+                    }
+                    setShowAttachMenu(false);
+                  }}
+                  className="flex items-center gap-3 p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-2xl transition-colors w-full"
+                >
+                  <div className={`${opt.color} p-2 rounded-xl text-white`}>
+                    <opt.icon className="w-4 h-4" />
+                  </div>
+                  <span className="text-xs font-bold dark:text-slate-200">{opt.label}</span>
+                </button>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <form onSubmit={sendMessage} className="flex items-center gap-2 max-w-5xl mx-auto">
           <div className="flex items-center bg-white dark:bg-[#2A3942] rounded-full px-4 py-2 flex-1 shadow-sm border border-slate-200 dark:border-none">
             <div className="flex items-center gap-1.5 mr-3 border-r border-slate-100 dark:border-slate-700 pr-3">
               <button 
                 type="button" 
-                onClick={() => setShowEmoji(!showEmoji)}
+                onClick={() => {
+                   setShowEmoji(!showEmoji);
+                   setShowGifs(false);
+                   setShowAttachMenu(false);
+                }}
                 className="text-slate-500 dark:text-slate-400 hover:text-wa-teal transition-colors"
                 title="Emojis"
               >
@@ -495,7 +658,11 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
               </button>
               <button 
                 type="button" 
-                onClick={() => setShowGifs(!showGifs)}
+                onClick={() => {
+                   setShowGifs(!showGifs);
+                   setShowEmoji(false);
+                   setShowAttachMenu(false);
+                }}
                 className={`transition-colors ${showGifs ? 'text-wa-green' : 'text-slate-500 dark:text-slate-400 hover:text-wa-teal'}`}
                 title="Gifs"
               >
@@ -507,7 +674,7 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
               type="text"
               value={message}
               onChange={e => setMessage(e.target.value)}
-              onFocus={() => { setShowEmoji(false); setShowGifs(false); }}
+              onFocus={() => { setShowEmoji(false); setShowGifs(false); setShowAttachMenu(false); }}
               placeholder="Type a message"
               className="bg-transparent text-[14px] w-full focus:outline-none dark:text-slate-100 placeholder:text-slate-400"
             />
@@ -515,13 +682,14 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
             <div className="flex items-center gap-2 ml-2">
               <button 
                 type="button" 
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => {
+                   setShowAttachMenu(!showAttachMenu);
+                   setShowEmoji(false);
+                   setShowGifs(false);
+                }}
                 disabled={uploading}
-                className="text-slate-500 dark:text-slate-400 hover:text-wa-teal"
+                className={`p-1.5 rounded-full transition-all ${showAttachMenu ? 'bg-wa-teal/10 text-wa-teal' : 'text-slate-500 dark:text-slate-400 hover:text-wa-teal'}`}
               >
-                <ImageIcon className="w-5 h-5" />
-              </button>
-              <button type="button" className="text-slate-500 dark:text-slate-400">
                 <Paperclip className="w-5 h-5 -rotate-45" />
               </button>
             </div>
@@ -530,8 +698,8 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
               type="file" 
               ref={fileInputRef} 
               className="hidden" 
-              accept="image/*" 
-              onChange={handleImageUpload}
+              accept="*" 
+              onChange={handleFileUpload}
             />
           </div>
 
@@ -627,11 +795,33 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
               </div>
 
               <div className="pt-6 border-t border-slate-100 dark:border-slate-800">
-                 <div className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider mb-4 opacity-70">Shared Vault Settings</div>
-                 <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-zinc-900/30 rounded-xl">
-                   <span className="text-[11px] font-bold text-slate-600 dark:text-zinc-400">Ephemeral Logs</span>
-                   <div className={`w-8 h-4 rounded-full relative ${liveChat.disappearingMode ? 'bg-wa-green' : 'bg-slate-300'} transition-colors`}>
-                      <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${liveChat.disappearingMode ? 'right-0.5' : 'left-0.5'}`} />
+                 <div className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider mb-4 opacity-70">Protocol Personalization</div>
+                 
+                 <div className="space-y-4">
+                   <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-zinc-900/30 rounded-xl">
+                     <span className="text-[11px] font-bold text-slate-600 dark:text-zinc-400">Ephemeral Logs</span>
+                     <div className={`w-8 h-4 rounded-full relative ${liveChat.disappearingMode ? 'bg-wa-green' : 'bg-slate-300'} transition-colors`}>
+                        <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${liveChat.disappearingMode ? 'right-0.5' : 'left-0.5'}`} />
+                     </div>
+                   </div>
+
+                   <div className="space-y-3">
+                     <label className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Vault Visualization</label>
+                     <div className="grid grid-cols-4 gap-2">
+                        {[
+                          { id: 'minimal', color: 'bg-[#E5DDD5]' },
+                          { id: 'wa-green', color: 'bg-[#075E54]' },
+                          { id: 'wa-dark', color: 'bg-[#0B141A]' },
+                          { id: 'cyber-teal', color: 'bg-wa-teal' },
+                        ].map(bg => (
+                          <button
+                            key={bg.id}
+                            onClick={() => setChatBackground(bg.id as any)}
+                            className={`h-10 rounded-lg ${bg.color} border-2 transition-all ${chatBackground === bg.id ? 'border-wa-green scale-110 shadow-lg' : 'border-transparent opacity-60 hover:opacity-100'}`}
+                            title={bg.id}
+                          />
+                        ))}
+                     </div>
                    </div>
                  </div>
               </div>

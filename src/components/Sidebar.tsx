@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { Search, Users, UserPlus, LogOut, MessageSquare, Plus, Bell, User, Sun, Moon, Compass, CheckCircle2, CheckCheck, Trash2, ShieldAlert } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Search, Users, UserPlus, LogOut, MessageSquare, Plus, Bell, User, Sun, Moon, Compass, CheckCircle2, CheckCheck, Trash2, ShieldAlert, X, Check } from 'lucide-react';
 import { auth, db } from '../lib/firebase';
 import { useChat } from '../contexts/ChatContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -24,6 +25,8 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
   const [isCleaning, setIsCleaning] = useState(false);
   const [userProfiles, setUserProfiles] = useState<Record<string, any>>({});
   const [uploadingPic, setUploadingPic] = useState(false);
+  const [showGroupModal, setShowGroupModal] = useState(false);
+  const [groupForm, setGroupForm] = useState({ name: '', members: [] as string[] });
 
   const isAdmin = user?.email === 'extremear762@gmail.com';
 
@@ -222,9 +225,15 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
     const reqSnapRecv = await getDocs(query(collection(db, 'friendRequests'), where('toId', '==', user.uid)));
     reqSnapRecv.docs.forEach(d => connections.add(d.data().fromId));
 
-    const q = query(collection(db, 'users'), where('displayName', '>=', searchQuery), where('displayName', '<=', searchQuery + '\uf8ff'));
-    const snap = await getDocs(q);
-    setSearchResults(snap.docs.map(d => d.data()).filter(u => u.uid !== user?.uid && !connections.has(u.uid)));
+    const qName = query(collection(db, 'users'), where('displayName', '>=', searchQuery), where('displayName', '<=', searchQuery + '\uf8ff'));
+    const qHandle = query(collection(db, 'users'), where('protocolId', '==', searchQuery.startsWith('@') ? searchQuery.slice(1) : searchQuery));
+    
+    const [snapName, snapHandle] = await Promise.all([getDocs(qName), getDocs(qHandle)]);
+    
+    const combined = [...snapName.docs, ...snapHandle.docs];
+    const uniqueResults = Array.from(new Set(combined.map(d => d.id))).map(id => combined.find(d => d.id === id)?.data());
+
+    setSearchResults(uniqueResults.filter(u => u.uid !== user?.uid && !connections.has(u.uid)));
   };
 
   const sendFriendRequest = async (targetUser: any) => {
@@ -314,17 +323,36 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
   };
 
   const createGroup = async () => {
-    const name = prompt("Enter group name:");
-    if (!name) return;
+    if (!groupForm.name || groupForm.members.length === 0) {
+      alert("Group name and at least one member required");
+      return;
+    }
+    
+    const participants = [user?.uid, ...groupForm.members];
+    const participantDetails: Record<string, any> = {
+      [user?.uid!]: { name: profile?.displayName, pic: profile?.profilePic, handle: profile?.protocolId }
+    };
+    
+    groupForm.members.forEach(id => {
+      const p = userProfiles[id] || friends.find(f => f.uid === id);
+      participantDetails[id] = { 
+        name: p?.displayName || p?.name, 
+        pic: p?.profilePic || p?.pic,
+        handle: p?.protocolId || p?.handle
+      };
+    });
+
     await addDoc(collection(db, 'chats'), {
       type: 'group',
-      name,
-      participants: [user?.uid],
-      participantDetails: {
-        [user?.uid!]: { name: profile?.displayName, pic: profile?.profilePic }
-      },
-      createdAt: serverTimestamp()
+      name: groupForm.name,
+      participants,
+      participantDetails,
+      createdAt: serverTimestamp(),
+      lastMessage: { content: "Group Created", senderId: 'system', timestamp: serverTimestamp() }
     });
+
+    setShowGroupModal(false);
+    setGroupForm({ name: '', members: [] });
   };
 
   const handleCleanDatabase = async () => {
@@ -442,10 +470,89 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
             )}
           </button>
         ))}
-        <button onClick={createGroup} className="px-4 text-white/60 hover:text-wa-green transition-colors">
+        <button onClick={() => setShowGroupModal(true)} className="px-4 text-white/60 hover:text-wa-green transition-colors">
            <Plus className="w-5 h-5" />
         </button>
       </div>
+
+      {/* Group Creation Modal */}
+      <AnimatePresence>
+        {showGroupModal && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              className="bg-white dark:bg-wa-panel-dark w-full max-w-md rounded-[2.5rem] overflow-hidden shadow-2xl border border-slate-200 dark:border-slate-800"
+            >
+              <div className="bg-wa-teal dark:bg-zinc-900 p-6 flex items-center justify-between text-white">
+                <h3 className="font-black uppercase tracking-widest text-sm">Assemble Direct Group</h3>
+                <button onClick={() => setShowGroupModal(false)}><X className="w-5 h-5" /></button>
+              </div>
+              
+              <div className="p-8 space-y-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-wa-teal dark:text-wa-green">Channel Alias</label>
+                  <input 
+                    type="text"
+                    placeholder="e.g. Protocol Alpha"
+                    value={groupForm.name}
+                    onChange={e => setGroupForm(prev => ({ ...prev, name: e.target.value }))}
+                    className="w-full bg-slate-50 dark:bg-zinc-950/50 border border-slate-200 dark:border-zinc-800 rounded-2xl py-4 px-6 text-slate-900 dark:text-white focus:outline-none focus:border-wa-green transition-all"
+                  />
+                </div>
+
+                <div className="space-y-4">
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-wa-teal dark:text-wa-green">Authorized Nodes ({groupForm.members.length})</label>
+                  <div className="max-h-[300px] overflow-y-auto pr-2 space-y-2 no-scrollbar">
+                    {friends.map(f => {
+                       const isSelected = groupForm.members.includes(f.uid);
+                       return (
+                         <button
+                           key={f.uid}
+                           onClick={() => {
+                             setGroupForm(prev => ({
+                               ...prev,
+                               members: isSelected 
+                                 ? prev.members.filter(id => id !== f.uid)
+                                 : [...prev.members, f.uid]
+                             }));
+                           }}
+                           className={`w-full flex items-center justify-between p-3 rounded-2xl transition-all border ${
+                             isSelected ? 'bg-wa-green/10 border-wa-green shadow-sm' : 'bg-slate-50 dark:bg-zinc-950/50 border-transparent hover:border-slate-300'
+                           }`}
+                         >
+                           <div className="flex items-center gap-3">
+                             <img src={f.profilePic} className="w-8 h-8 rounded-full" />
+                             <span className="text-sm font-bold dark:text-slate-200">{f.displayName}</span>
+                           </div>
+                           <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                             isSelected ? 'bg-wa-green border-wa-green' : 'border-slate-300'
+                           }`}>
+                             {isSelected && <Check className="w-3 h-3 text-white" />}
+                           </div>
+                         </button>
+                       );
+                    })}
+                  </div>
+                </div>
+
+                <button
+                  onClick={createGroup}
+                  disabled={!groupForm.name || groupForm.members.length === 0}
+                  className="w-full bg-wa-green text-wa-dark-green font-black py-5 rounded-2xl transition-all active:scale-[0.98] disabled:opacity-50 shadow-xl shadow-wa-green/20"
+                >
+                  INITIALIZE SECURE GROUP
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto no-scrollbar bg-white dark:bg-[#0B141A] transition-colors">

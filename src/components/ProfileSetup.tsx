@@ -3,12 +3,13 @@ import { motion } from 'motion/react';
 import { Camera, User, FileText, ChevronRight } from 'lucide-react';
 import { useChat } from '../contexts/ChatContext';
 import { db } from '../lib/firebase';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp, getDocs, collection, query, where } from 'firebase/firestore';
 
 export default function ProfileSetup({ onComplete }: { onComplete?: () => void }) {
   const { user, profile, setProfile } = useChat();
   const [formData, setFormData] = useState({
     displayName: profile?.displayName || user?.displayName || '',
+    protocolId: profile?.protocolId || '',
     bio: profile?.bio || '',
     gender: profile?.gender || 'Other',
     age: profile?.age || 18,
@@ -33,6 +34,17 @@ export default function ProfileSetup({ onComplete }: { onComplete?: () => void }
     setLoading(true);
 
     try {
+      // 1. Check for protocolId uniqueness if changed
+      if (formData.protocolId && formData.protocolId !== profile?.protocolId) {
+        const q = query(collection(db, 'users'), where('protocolId', '==', formData.protocolId));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          alert("Protocol Alert: This ID is already assigned to another node. Please choose a unique identifier.");
+          setLoading(false);
+          return;
+        }
+      }
+
       const dbData = {
         uid: user.uid,
         ...formData,
@@ -96,19 +108,35 @@ export default function ProfileSetup({ onComplete }: { onComplete?: () => void }
               </div>
             </div>
 
-            <div className="flex-1 w-full space-y-8 mt-4 md:mt-0">
-              <div className="space-y-3">
-                <label className="text-[10px] font-black uppercase tracking-[0.2em] text-wa-teal dark:text-wa-green ml-1">Visible Protocol Alias</label>
-                <div className="relative">
-                  <User className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300 dark:text-zinc-600" />
-                  <input
-                    type="text"
-                    required
-                    value={formData.displayName}
-                    onChange={e => setFormData({ ...formData, displayName: e.target.value })}
-                    placeholder="e.g. Ghost_01"
-                    className="w-full bg-slate-50 dark:bg-zinc-950/50 border border-slate-200 dark:border-zinc-800 rounded-2xl py-4 pl-14 pr-6 text-slate-900 dark:text-white focus:border-wa-green focus:ring-1 focus:ring-wa-green transition-all outline-none"
-                  />
+            <div className="flex-1 w-full space-y-6 mt-4 md:mt-0">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-wa-teal dark:text-wa-green ml-1">Visible Alias</label>
+                  <div className="relative">
+                    <User className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-300 dark:text-zinc-600" />
+                    <input
+                      type="text"
+                      required
+                      value={formData.displayName}
+                      onChange={e => setFormData({ ...formData, displayName: e.target.value })}
+                      placeholder="e.g. Ghost"
+                      className="w-full bg-slate-50 dark:bg-zinc-950/50 border border-slate-200 dark:border-zinc-800 rounded-2xl py-4 pl-14 pr-6 text-slate-900 dark:text-white focus:border-wa-green focus:ring-1 focus:ring-wa-green transition-all outline-none"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-wa-teal dark:text-wa-green ml-1">Unique Protocol ID</label>
+                  <div className="relative">
+                    <div className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400 font-bold">@</div>
+                    <input
+                      type="text"
+                      required
+                      value={formData.protocolId}
+                      onChange={e => setFormData({ ...formData, protocolId: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') })}
+                      placeholder="user_01"
+                      className="w-full bg-slate-50 dark:bg-zinc-950/50 border border-slate-200 dark:border-zinc-800 rounded-2xl py-4 pl-10 pr-6 text-slate-900 dark:text-white focus:border-wa-green focus:ring-1 focus:ring-wa-green transition-all outline-none font-mono"
+                    />
+                  </div>
                 </div>
               </div>
 

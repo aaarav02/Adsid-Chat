@@ -46,6 +46,7 @@ service cloud.firestore {
              data.uid == request.auth.uid &&
              data.uid is string && data.uid.size() <= 128 &&
              data.displayName is string && data.displayName.size() <= 100 &&
+             (!('protocolId' in data) || (data.protocolId is string && data.protocolId.size() <= 64)) &&
              (!('bio' in data) || (data.bio is string && data.bio.size() <= 500)) &&
              (!('gender' in data) || (data.gender is string && data.gender.size() <= 20)) &&
              (!('age' in data) || (data.age is number && data.age >= 0 && data.age <= 150)) &&
@@ -72,8 +73,10 @@ service cloud.firestore {
              data.content is string && data.content.size() <= 10000 &&
              data.timestamp == request.time &&
              (!('senderName' in data) || (data.senderName is string && data.senderName.size() <= 100)) &&
-             (!('type' in data) || (data.type in ['text', 'image', 'gif', 'file'])) &&
+             (!('type' in data) || (data.type in ['text', 'image', 'gif', 'file', 'video'])) &&
              (!('mediaUrl' in data) || (data.mediaUrl is string && data.mediaUrl.size() <= 1000000) || data.mediaUrl == null) &&
+             (!('fileName' in data) || (data.fileName is string && data.fileName.size() <= 256)) &&
+             (!('linkPreview' in data) || (data.linkPreview is map)) &&
              (!('savedBy' in data) || (data.savedBy is list && data.savedBy.size() <= 100)) &&
              (!('seenBy' in data) || (data.seenBy is list && data.seenBy.size() <= 100));
     }

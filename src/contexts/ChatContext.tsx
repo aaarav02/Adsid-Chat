@@ -16,19 +16,57 @@ interface UserProfile {
   isRegistered: boolean;
 }
 
+interface AppConfig {
+  name: string;
+  logo: string;
+  favicon: string;
+}
+
 interface ChatContextType {
   user: FirebaseUser | null;
   profile: UserProfile | null;
   loading: boolean;
   setProfile: (p: UserProfile) => void;
+  appConfig: AppConfig;
+  updateAppConfig: (config: Partial<AppConfig>) => Promise<void>;
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
+
+const DEFAULT_CONFIG: AppConfig = {
+  name: "Adsid Chat",
+  logo: "/logo.png",
+  favicon: "/logo.png"
+};
 
 export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [profile, setProfileState] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [appConfig, setAppConfig] = useState<AppConfig>(DEFAULT_CONFIG);
+
+  // Listen for App Config
+  useEffect(() => {
+    const unsubConfig = onSnapshot(doc(db, 'settings', 'appConfig'), (snap) => {
+      if (snap.exists()) {
+        setAppConfig(snap.data() as AppConfig);
+        // Update favicon dynamically
+        const link = document.querySelector("link[rel*='icon']") as HTMLLinkElement;
+        if (link) link.href = snap.data().favicon || "/logo.png";
+        document.title = snap.data().name || "Adsid Chat";
+      }
+    });
+
+    return () => unsubConfig();
+  }, []);
+
+  const updateAppConfig = async (newConfig: Partial<AppConfig>) => {
+    try {
+      await setDoc(doc(db, 'settings', 'appConfig'), { ...appConfig, ...newConfig }, { merge: true });
+    } catch (e) {
+      console.error("Config update failed", e);
+    }
+  };
 
   useEffect(() => {
     const unsubAuth = onAuthStateChanged(auth, (u) => {
@@ -114,7 +152,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   }, [user]);
 
   return (
-    <ChatContext.Provider value={{ user, profile, loading, setProfile: setProfileState }}>
+    <ChatContext.Provider value={{ user, profile, loading, setProfile: setProfileState, appConfig, updateAppConfig }}>
       {children}
     </ChatContext.Provider>
   );

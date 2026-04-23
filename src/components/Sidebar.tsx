@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Users, UserPlus, LogOut, MessageSquare, Plus, Bell, User, Sun, Moon, Compass, CheckCircle2, CheckCheck, Trash2, ShieldAlert, X, Check } from 'lucide-react';
+import { Search, Users, UserPlus, LogOut, MessageSquare, Plus, Bell, User, Sun, Moon, Compass, CheckCircle2, CheckCheck, Trash2, ShieldAlert, X, Check, Settings, Palette, Cloud } from 'lucide-react';
 import { auth, db } from '../lib/firebase';
 import { useChat } from '../contexts/ChatContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -13,9 +13,9 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) {
-  const { user, profile } = useChat();
+  const { user, profile, appConfig, updateAppConfig } = useChat();
   const { theme, toggleTheme } = useTheme();
-  const [activeTab, setActiveTab] = useState<'chats' | 'friends' | 'requests' | 'search' | 'discover'>('chats');
+  const [activeTab, setActiveTab] = useState<'chats' | 'friends' | 'requests' | 'search' | 'discover' | 'settings'>('chats');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [chats, setChats] = useState<any[]>([]);
@@ -27,6 +27,13 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
   const [uploadingPic, setUploadingPic] = useState(false);
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [groupForm, setGroupForm] = useState({ name: '', members: [] as string[] });
+  
+  const [adminConfig, setAdminConfig] = useState(appConfig);
+  const [settingsTab, setSettingsTab] = useState<'main' | 'admin'>('main');
+
+  useEffect(() => {
+    setAdminConfig(appConfig);
+  }, [appConfig]);
 
   const isAdmin = user?.email === 'c4rush.com@gmail.com' || user?.email === 'extremear762@gmail.com';
 
@@ -225,31 +232,15 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
           </div>
           <div className="flex items-center gap-1">
             <button 
-              onClick={toggleTheme}
-              className="p-2 hover:bg-white/10 rounded-full transition-all"
-              title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
+              onClick={() => setActiveTab('settings')}
+              className={`p-2 rounded-full transition-all ${activeTab === 'settings' ? 'bg-white/20 text-wa-green' : 'hover:bg-white/10'}`}
+              title="Global Settings"
             >
-              {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              <Settings className="w-5 h-5" />
             </button>
-            <button 
-              onClick={() => onChatSelect({ isProfileEdit: true })}
-              className="p-2 hover:bg-white/10 rounded-full transition-all"
-            >
-              <User className="w-4 h-4" />
+            <button onClick={() => setShowGroupModal(true)} className="p-2 hover:bg-white/10 rounded-full transition-all text-white/80 hover:text-wa-green" title="Create Secure Group">
+              <Plus className="w-5 h-5" />
             </button>
-            <button onClick={() => auth.signOut()} className="p-2 hover:bg-white/10 rounded-full transition-all" title="Sign Out">
-              <LogOut className="w-4 h-4" />
-            </button>
-            {isAdmin && (
-              <button 
-                onClick={handleCleanDatabase} 
-                disabled={isCleaning}
-                className={`p-2 rounded-full transition-all ${isCleaning ? 'bg-red-500 animate-pulse' : 'hover:bg-red-500/20 text-red-100 hover:text-red-400'}`}
-                title="Admin: Clean Database"
-              >
-                <ShieldAlert className="w-4 h-4" />
-              </button>
-            )}
           </div>
         </div>
 
@@ -293,9 +284,6 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
             )}
           </button>
         ))}
-        <button onClick={() => setShowGroupModal(true)} className="px-4 text-white/60 hover:text-wa-green transition-colors">
-           <Plus className="w-5 h-5" />
-        </button>
       </div>
 
       {/* Group Creation Modal */}
@@ -540,6 +528,160 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
               )}
             </div>
           )}
+
+        {activeTab === 'settings' && (
+          <div className="flex flex-col h-full bg-slate-50 dark:bg-[#0B141A] overflow-hidden">
+            <div className="p-4 bg-wa-teal dark:bg-wa-panel-dark flex items-center gap-4 text-white">
+               {settingsTab !== 'main' && (
+                 <button onClick={() => setSettingsTab('main')} className="p-2 hover:bg-white/10 rounded-full">
+                    <X className="w-5 h-5" />
+                 </button>
+               )}
+               <h3 className="font-black uppercase tracking-[0.2em] text-xs">
+                 {settingsTab === 'main' ? 'Global Settings' : 'Branding Protocol'}
+               </h3>
+            </div>
+
+            <div className="flex-1 overflow-y-auto no-scrollbar">
+              <AnimatePresence mode="wait">
+                {settingsTab === 'main' ? (
+                  <motion.div 
+                    key="main-settings"
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    className="p-4 space-y-4"
+                  >
+                    {/* Profile Categorization */}
+                    <div className="bg-white dark:bg-wa-panel-dark rounded-2xl overflow-hidden border border-slate-100 dark:border-slate-800 shadow-sm">
+                      <div className="text-[9px] font-black uppercase text-zinc-500 tracking-widest p-4 pb-2 border-b border-slate-50 dark:border-slate-800/50">Identity Sync</div>
+                      <button 
+                        onClick={() => onChatSelect({ isProfileEdit: true })}
+                        className="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-zinc-900 transition-colors text-left"
+                      >
+                        <div className="flex items-center gap-4">
+                          <img src={profile?.profilePic} className="w-12 h-12 rounded-full ring-2 ring-wa-green/20" />
+                          <div>
+                            <p className="font-bold text-sm dark:text-white">{profile?.displayName}</p>
+                            <p className="text-[10px] text-zinc-500">Node ID: #{user?.uid?.slice(-6).toUpperCase()}</p>
+                          </div>
+                        </div>
+                        <Settings className="w-4 h-4 text-zinc-400" />
+                      </button>
+                    </div>
+
+                    {/* Interface Categorization */}
+                    <div className="bg-white dark:bg-wa-panel-dark rounded-2xl overflow-hidden border border-slate-100 dark:border-slate-800 shadow-sm">
+                      <div className="text-[9px] font-black uppercase text-zinc-500 tracking-widest p-4 pb-2 border-b border-slate-50 dark:border-slate-800/50">Display Protocol</div>
+                      <button 
+                        onClick={toggleTheme}
+                        className="w-full flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-zinc-900 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-wa-teal/10 rounded-lg">
+                            {theme === 'dark' ? <Moon className="w-4 h-4 text-wa-teal" /> : <Sun className="w-4 h-4 text-wa-teal" />}
+                          </div>
+                          <span className="text-xs font-bold dark:text-slate-200">{theme === 'dark' ? 'Dark Mode Active' : 'Light Mode Active'}</span>
+                        </div>
+                        <div className={`w-10 h-5 rounded-full relative transition-all ${theme === 'dark' ? 'bg-wa-green' : 'bg-slate-300'}`}>
+                          <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${theme === 'dark' ? 'right-1' : 'left-1'}`} />
+                        </div>
+                      </button>
+                    </div>
+
+                    {/* Admin Categorization */}
+                    {isAdmin && (
+                      <div className="bg-white dark:bg-wa-panel-dark rounded-2xl overflow-hidden border border-slate-100 dark:border-slate-800 shadow-sm">
+                        <div className="text-[9px] font-black uppercase text-red-500 tracking-widest p-4 pb-2 border-b border-slate-50 dark:border-slate-800/50 flex items-center gap-2">
+                           <ShieldAlert className="w-3 h-3" /> Core Management
+                        </div>
+                        <button 
+                          onClick={() => setSettingsTab('admin')}
+                          className="w-full flex items-center gap-4 p-4 hover:bg-slate-50 dark:hover:bg-zinc-900 transition-colors text-left"
+                        >
+                          <div className="p-2 bg-red-500/10 rounded-lg">
+                            <Palette className="w-4 h-4 text-red-500" />
+                          </div>
+                          <div>
+                            <p className="text-xs font-bold dark:text-white">App Governance</p>
+                            <p className="text-[10px] text-zinc-500">Edit branding, logo & favicon</p>
+                          </div>
+                        </button>
+                        <button 
+                          onClick={handleCleanDatabase}
+                          disabled={isCleaning}
+                          className="w-full flex items-center gap-4 p-4 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors text-left text-red-500 border-t border-slate-50 dark:border-slate-800/50"
+                        >
+                          <div className="p-2 bg-red-500/10 rounded-lg">
+                            <Trash2 className="w-4 h-4" />
+                          </div>
+                          <div>
+                             <p className="text-xs font-bold">{isCleaning ? 'PURGING DATA...' : 'Wipe Chat Sync'}</p>
+                             <p className="text-[10px] opacity-60">Global data deletion</p>
+                          </div>
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Authentication */}
+                    <button 
+                      onClick={() => auth.signOut()}
+                      className="w-full flex items-center gap-4 p-4 bg-white dark:bg-wa-panel-dark rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm text-zinc-400 hover:text-red-500 transition-colors"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      <span className="text-xs font-black uppercase tracking-widest">Logout Protocol</span>
+                    </button>
+                  </motion.div>
+                ) : (
+                  <motion.div 
+                    key="admin-settings"
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: 20 }}
+                    className="p-4 space-y-6"
+                  >
+                    <div className="space-y-4">
+                      <div className="space-y-1 px-1">
+                        <label className="text-[10px] font-black uppercase text-zinc-400 tracking-widest">Global Protocol Alias</label>
+                        <input 
+                          type="text" 
+                          value={adminConfig.name}
+                          onChange={e => setAdminConfig({...adminConfig, name: e.target.value})}
+                          className="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl text-sm focus:border-wa-green outline-none"
+                        />
+                      </div>
+                      <div className="space-y-1 px-1">
+                        <label className="text-[10px] font-black uppercase text-zinc-400 tracking-widest">Vector Logo URL</label>
+                        <input 
+                          type="text" 
+                          value={adminConfig.logo}
+                          onChange={e => setAdminConfig({...adminConfig, logo: e.target.value})}
+                          className="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl text-sm focus:border-wa-green outline-none"
+                        />
+                      </div>
+                      <div className="space-y-1 px-1">
+                        <label className="text-[10px] font-black uppercase text-zinc-400 tracking-widest">Favicon Protocol URL</label>
+                        <input 
+                          type="text" 
+                          value={adminConfig.favicon}
+                          onChange={e => setAdminConfig({...adminConfig, favicon: e.target.value})}
+                          className="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl text-sm focus:border-wa-green outline-none"
+                        />
+                      </div>
+                      
+                      <button 
+                        onClick={() => { updateAppConfig(adminConfig); setSettingsTab('main'); }}
+                        className="w-full bg-wa-teal dark:bg-wa-green text-white dark:text-wa-dark-green h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-wa-teal/20 active:scale-95 transition-all"
+                      >
+                        Override App Configuration
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
+        )}
         </div>
       </div>
     );

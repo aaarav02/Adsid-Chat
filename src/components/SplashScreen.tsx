@@ -1,11 +1,14 @@
 import { useEffect } from 'react';
 import { motion } from 'motion/react';
+import { useChat } from '../contexts/ChatContext';
 
 interface SplashScreenProps {
   onComplete: () => void;
 }
 
 export default function SplashScreen({ onComplete }: SplashScreenProps) {
+  const { appConfig } = useChat();
+
   useEffect(() => {
     const timer = setTimeout(onComplete, 3000);
     return () => clearTimeout(timer);
@@ -20,8 +23,8 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
         className="w-32 h-32 bg-wa-teal rounded-3xl flex items-center justify-center shadow-2xl shadow-wa-teal/20 overflow-hidden"
       >
         <img 
-          src="/logo.png" 
-          alt="Adsid Logo" 
+          src={appConfig.logo} 
+          alt={appConfig.name} 
           className="w-full h-full object-cover"
           onError={(e) => {
             const target = e.target as HTMLImageElement;
@@ -44,7 +47,7 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
           transition={{ delay: 0.3 }}
           className="text-4xl font-black tracking-tight"
         >
-          AdSid Chat
+          {appConfig.name}
         </motion.h1>
         <motion.p
           initial={{ opacity: 0 }}

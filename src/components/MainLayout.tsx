@@ -8,7 +8,7 @@ import { useChat } from '../contexts/ChatContext';
 import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function MainLayout() {
-  const { user, profile } = useChat();
+  const { user, profile, appConfig } = useChat();
   const [selectedChat, setSelectedChat] = useState<any>(null);
   const [showSidebar, setShowSidebar] = useState(true);
 
@@ -37,8 +37,8 @@ export default function MainLayout() {
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-wa-teal rounded-xl flex items-center justify-center overflow-hidden shadow-lg shadow-wa-teal/20">
             <img 
-              src="/logo.png" 
-              alt="Adsid Logo" 
+              src={appConfig.logo} 
+              alt={appConfig.name} 
               className="w-full h-full object-cover"
               onError={(e) => {
                 const target = e.target as HTMLImageElement;
@@ -54,7 +54,7 @@ export default function MainLayout() {
             />
           </div>
           <div className="leading-none">
-            <h1 className="text-sm font-bold tracking-tight">Adsid Chat</h1>
+            <h1 className="text-sm font-bold tracking-tight">{appConfig.name}</h1>
             <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-tighter">Secure Protocol 2.0</p>
           </div>
         </div>
@@ -77,13 +77,14 @@ export default function MainLayout() {
 
       <div className="flex flex-1 overflow-hidden relative">
         {/* Sidebar - Hidden on mobile if chat selected */}
-        <AnimatePresence mode="wait">
+        <AnimatePresence>
           {showSidebar && (
             <motion.div
               initial={{ x: -400, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               exit={{ x: -400, opacity: 0 }}
-              className={`fixed inset-0 sm:relative sm:inset-auto w-full sm:w-80 flex-shrink-0 border-r border-slate-200 dark:border-slate-800 flex flex-col bg-wa-panel-light dark:bg-wa-panel-dark transition-all z-40`}
+              transition={{ type: 'tween', duration: 0.2 }}
+              className={`fixed inset-0 sm:relative sm:inset-auto w-full sm:w-80 flex-shrink-0 border-r border-slate-200 dark:border-slate-800 flex flex-col bg-wa-panel-light dark:bg-wa-panel-dark transition-all z-40 will-change-transform`}
             >
               <Sidebar onChatSelect={(chat) => setSelectedChat(chat)} selectedChatId={selectedChat?.id} />
             </motion.div>
@@ -116,8 +117,8 @@ export default function MainLayout() {
             <div className="hidden sm:flex flex-1 flex-col items-center justify-center text-zinc-400 gap-6">
               <div className="w-16 h-16 bg-slate-100 dark:bg-zinc-900 rounded-2xl flex items-center justify-center border border-slate-200 dark:border-zinc-800 shadow-xl overflow-hidden">
                 <img 
-                  src="/logo.png" 
-                  alt="Adsid Logo" 
+                  src={appConfig.logo} 
+                  alt={appConfig.name} 
                   className="w-full h-full object-cover"
                   onError={(e) => {
                     const target = e.target as HTMLImageElement;

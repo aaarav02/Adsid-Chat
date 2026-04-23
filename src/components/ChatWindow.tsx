@@ -590,7 +590,7 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
           <div ref={messagesEndRef} />
         </div>
 
-        <footer className="p-3 bg-[#F0F2F5] dark:bg-[#111B21] transition-colors relative">
+        <footer className="p-2 sm:p-3 bg-[#F0F2F5] dark:bg-[#111B21] transition-colors relative">
           {/* GIF Picker Overlay */}
           <AnimatePresence>
             {showGifs && (
@@ -629,8 +629,8 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
             )}
           </AnimatePresence>
 
-          <form onSubmit={sendMessage} className="flex items-center gap-2 max-w-5xl mx-auto">
-            <div className="flex items-center bg-white dark:bg-[#2A3942] rounded-full px-4 py-2 flex-1 shadow-sm border border-slate-200 dark:border-none">
+          <form onSubmit={sendMessage} className="flex items-center gap-1.5 sm:gap-2 max-w-5xl mx-auto">
+            <div className="flex items-center bg-white dark:bg-[#2A3942] rounded-full px-3 sm:px-4 py-2 flex-1 shadow-sm border border-slate-200 dark:border-none">
               <div className="flex items-center gap-1.5 mr-3 border-r border-slate-100 dark:border-slate-700 pr-3">
                 <button type="button" onClick={() => { setShowEmoji(!showEmoji); setShowGifs(false); setShowAttachMenu(false); }} className="text-slate-500 dark:text-slate-400 hover:text-wa-teal transition-colors"><Smile className="w-5 h-5" /></button>
                 <button type="button" onClick={() => { setShowAttachMenu(!showAttachMenu); setShowEmoji(false); setShowGifs(false); }} className={`p-1.5 rounded-full transition-all ${showAttachMenu ? 'bg-wa-teal/10 text-wa-teal' : 'text-slate-500 dark:text-slate-400 hover:text-wa-teal'}`}><Paperclip className="w-5 h-5 -rotate-45" /></button>

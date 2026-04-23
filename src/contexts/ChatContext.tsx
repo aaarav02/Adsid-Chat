@@ -70,12 +70,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
     setOnline();
 
-    // Heartbeat: Update lastSeen every 10s to ensure "Live" status
+    // Heartbeat: Update lastSeen every 2 minutes to ensure "Live" status without hitting quota limits
     const heartbeat = setInterval(() => {
       if (document.visibilityState === 'visible') {
         setOnline();
       }
-    }, 10000);
+    }, 120000); // 2 minutes
 
     // Listen for profile updates
     const unsubProfile = onSnapshot(userRef, (snap) => {
@@ -87,12 +87,16 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
     });
 
+    let visibilityTimeout: any;
     const handlePresence = () => {
-      if (document.visibilityState === 'hidden') {
-        setOffline();
-      } else {
-        setOnline();
-      }
+      clearTimeout(visibilityTimeout);
+      visibilityTimeout = setTimeout(() => {
+        if (document.visibilityState === 'hidden') {
+          setOffline();
+        } else {
+          setOnline();
+        }
+      }, 5000); // Debounce visibility changes by 5s to save writes
     };
 
     window.addEventListener('beforeunload', setOffline);

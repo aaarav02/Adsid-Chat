@@ -28,34 +28,49 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [groupForm, setGroupForm] = useState({ name: '', members: [] as string[] });
 
-  const isAdmin = user?.email === 'extremear762@gmail.com';
+  const isAdmin = user?.email === 'c4rush.com@gmail.com' || user?.email === 'extremear762@gmail.com';
 
-  // Listen for chats
+  const handleCleanDatabase = async () => {
+    if (!isAdmin) return;
+    if (!confirm("Are you ABSOLUTELY sure? This will delete ALL chats, messages, and friend requests for everyone. This cannot be undone.")) return;
+    
+    setIsCleaning(true);
+    try {
+      const batch = writeBatch(db);
+      const reqs = await getDocs(collection(db, 'friendRequests'));
+      reqs.forEach(d => batch.delete(d.ref));
+      const chatsSnap = await getDocs(collection(db, 'chats'));
+      for (const chatDoc of chatsSnap.docs) {
+        const msgs = await getDocs(collection(db, 'chats', chatDoc.id, 'messages'));
+        msgs.forEach(m => batch.delete(m.ref));
+        batch.delete(chatDoc.ref);
+      }
+      await batch.commit();
+      alert("Database wiped successfully.");
+    } catch (err) {
+      console.error(err);
+      alert("Cleanup failed.");
+    } finally {
+      setIsCleaning(false);
+    }
+  };
+
   useEffect(() => {
     if (!user) return;
-    const q = query(
-      collection(db, 'chats'),
-      where('participants', 'array-contains', user.uid)
-    );
+    const q = query(collection(db, 'chats'), where('participants', 'array-contains', user.uid));
     return onSnapshot(q, (snapshot) => {
       setChats(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
   }, [user]);
 
-  // Listen for requests
   useEffect(() => {
     if (!user) return;
-    const q = query(
-      collection(db, 'friendRequests'),
-      where('toId', '==', user.uid),
-      where('status', '==', 'pending')
-    );
+    const q = query(collection(db, 'friendRequests'), where('toId', '==', user.uid), where('status', '==', 'pending'));
     return onSnapshot(q, (snapshot) => {
       setRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
   }, [user]);
 
-  // Listen for friends
   useEffect(() => {
     if (!user) return;
     const q = query(collection(db, 'users', user.uid, 'friends'), orderBy('timestamp', 'desc'));
@@ -64,257 +79,109 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
     });
   }, [user]);
 
-  // Sync existing chats to friends list automatically
-  const [forceUpdate, setForceUpdate] = useState(0);
-
-  // Periodic Refresh for status staleness
-  useEffect(() => {
-    const timer = setInterval(() => setForceUpdate(s => s + 1), 10000); // Check every 10s
-    return () => clearInterval(timer);
-  }, []);
-
   const isUserOnline = (uid: string) => {
     const p = userProfiles[uid];
-    if (!p) return false;
-    if (p.status !== 'online') return false;
-    
+    if (!p || p.status !== 'online') return false;
     const now = Date.now();
     let lastSeenMillis = 0;
-    
     try {
-      if (p.lastSeen && typeof p.lastSeen.toMillis === 'function') {
-        lastSeenMillis = p.lastSeen.toMillis();
-      } else if (p.lastSeen?.seconds) {
-        lastSeenMillis = p.lastSeen.seconds * 1000;
-      }
-    } catch (e) {
-      return true; // Fallback to trust status if timestamp parsing fails
-    }
-
-    return (now - lastSeenMillis) < 45000; // 45s threshold
+      if (p.lastSeen?.toMillis) lastSeenMillis = p.lastSeen.toMillis();
+      else if (p.lastSeen?.seconds) lastSeenMillis = p.lastSeen.seconds * 1000;
+    } catch (e) { return true; }
+    return (now - lastSeenMillis) < 45000;
   };
 
-  // Real-time Status Subscriptions for all contacts
   const trackedIds = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!user) return;
-
     const allIds = new Set<string>();
     chats.forEach(c => c.participants?.forEach((p: string) => { if (p !== user.uid) allIds.add(p); }));
     friends.forEach(f => { if (f.uid) allIds.add(f.uid); });
-
     const newIds = Array.from(allIds).filter(id => !trackedIds.current.has(id));
     if (newIds.length === 0) return;
-
-    const unsubs: (() => void)[] = [];
     newIds.forEach(id => {
       trackedIds.current.add(id);
-      const unsub = onSnapshot(doc(db, 'users', id), (snap) => {
-        if (snap.exists()) {
-          setUserProfiles(prev => ({ ...prev, [id]: snap.data() }));
-        }
+      onSnapshot(doc(db, 'users', id), (snap) => {
+        if (snap.exists()) setUserProfiles(prev => ({ ...prev, [id]: snap.data() }));
       });
-      unsubs.push(unsub);
     });
-
-    return () => {
-      // In a real app we might want to cleanup differently, 
-      // but for this turn we keep them alive for the session
-    };
   }, [chats, friends, user]);
-  const syncedIds = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    if (!user || chats.length === 0) return;
-    
-    chats.forEach(async (chat) => {
-      if (chat.type === 'individual') {
-        const otherId = chat.participants?.find((p: string) => p !== user.uid);
-        if (otherId && !friends.find(f => f.uid === otherId) && !syncedIds.current.has(otherId)) {
-          const otherDetails = chat.participantDetails?.[otherId] || userProfiles[otherId];
-          if (otherDetails?.name || otherDetails?.displayName) {
-            syncedIds.current.add(otherId);
-            try {
-              // Only sync if we have at least a name
-              await setDoc(doc(db, 'users', user.uid, 'friends', otherId), {
-                uid: otherId,
-                displayName: otherDetails.name || otherDetails.displayName,
-                profilePic: otherDetails.pic || otherDetails.profilePic || '',
-                timestamp: serverTimestamp()
-              });
-            } catch (e) {
-              // Silently handle sync errors to prevent crash
-            }
-          }
-        }
-      }
-    });
-  }, [chats, user, friends]);
 
-  // Discover Online Users - Filtered
   useEffect(() => {
     if (!user || activeTab !== 'discover') return;
-    
-    // First, get all current connections/requests to hide them
     const fetchConnections = async () => {
       const connections = new Set<string>();
-      
-      // Get existing chat participants
       const chatSnap = await getDocs(query(collection(db, 'chats'), where('participants', 'array-contains', user.uid)));
-      chatSnap.docs.forEach(d => {
-        d.data().participants?.forEach((p: string) => connections.add(p));
-      });
-
-      // Get pending requests (sent or received)
+      chatSnap.docs.forEach(d => d.data().participants?.forEach((p: string) => connections.add(p)));
       const reqSnapSent = await getDocs(query(collection(db, 'friendRequests'), where('fromId', '==', user.uid)));
       reqSnapSent.docs.forEach(d => connections.add(d.data().toId));
-      
       const reqSnapRecv = await getDocs(query(collection(db, 'friendRequests'), where('toId', '==', user.uid)));
       reqSnapRecv.docs.forEach(d => connections.add(d.data().fromId));
 
-      const q = query(
-        collection(db, 'users'),
-        where('status', '==', 'online'),
-        limit(100)
-      );
-      
-      const unsubscribe = onSnapshot(q, (snapshot) => {
+      const q = query(collection(db, 'users'), where('status', '==', 'online'), limit(100));
+      return onSnapshot(q, (snapshot) => {
         const now = Date.now();
-        const threshold = 45000; // 45s stale threshold
-
-        setDiscoverUsers(snapshot.docs
-          .map(doc => doc.data())
-          .filter(u => {
-            const isMe = u.uid === user.uid;
-            const isAlreadyConnected = connections.has(u.uid);
-            
-            // Presence Verification
-            let lastSeenMillis = 0;
-            try {
-              if (u.lastSeen && typeof u.lastSeen.toMillis === 'function') {
-                lastSeenMillis = u.lastSeen.toMillis();
-              } else if (u.lastSeen?.seconds) {
-                lastSeenMillis = u.lastSeen.seconds * 1000;
-              }
-            } catch (e) {
-              lastSeenMillis = now; // Assume online if error
-            }
-
-            const isActuallyOnline = (now - lastSeenMillis) < threshold;
-
-            return !isMe && !isAlreadyConnected && isActuallyOnline;
-          })
-        );
+        setDiscoverUsers(snapshot.docs.map(doc => doc.data()).filter(u => {
+          if (u.uid === user.uid || connections.has(u.uid)) return false;
+          let lastSeenMillis = 0;
+          try {
+            if (u.lastSeen?.toMillis) lastSeenMillis = u.lastSeen.toMillis();
+            else if (u.lastSeen?.seconds) lastSeenMillis = u.lastSeen.seconds * 1000;
+          } catch (e) { lastSeenMillis = now; }
+          return (now - lastSeenMillis) < 45000;
+        }));
       });
-      return unsubscribe;
     };
-
     fetchConnections();
   }, [user, activeTab]);
 
   const handleSearch = async () => {
     if (!searchQuery.trim() || !user) return;
-    
-    // Fetch connections to filter
     const connections = new Set<string>();
     const chatSnap = await getDocs(query(collection(db, 'chats'), where('participants', 'array-contains', user.uid)));
     chatSnap.docs.forEach(d => d.data().participants?.forEach((p: string) => connections.add(p)));
-    
-    const reqSnapSent = await getDocs(query(collection(db, 'friendRequests'), where('fromId', '==', user.uid)));
-    reqSnapSent.docs.forEach(d => connections.add(d.data().toId));
-    
-    const reqSnapRecv = await getDocs(query(collection(db, 'friendRequests'), where('toId', '==', user.uid)));
-    reqSnapRecv.docs.forEach(d => connections.add(d.data().fromId));
-
     const qName = query(collection(db, 'users'), where('displayName', '>=', searchQuery), where('displayName', '<=', searchQuery + '\uf8ff'));
     const qHandle = query(collection(db, 'users'), where('protocolId', '==', searchQuery.startsWith('@') ? searchQuery.slice(1) : searchQuery));
-    
     const [snapName, snapHandle] = await Promise.all([getDocs(qName), getDocs(qHandle)]);
-    
     const combined = [...snapName.docs, ...snapHandle.docs];
     const uniqueResults = Array.from(new Set(combined.map(d => d.id))).map(id => combined.find(d => d.id === id)?.data());
-
     setSearchResults(uniqueResults.filter(u => u.uid !== user?.uid && !connections.has(u.uid)));
   };
 
   const sendFriendRequest = async (targetUser: any) => {
     if (!user) return;
-    
-    // Check for existing request
-    const q = query(
-      collection(db, 'friendRequests'),
-      where('fromId', '==', user.uid),
-      where('toId', '==', targetUser.uid)
-    );
+    const q = query(collection(db, 'friendRequests'), where('fromId', '==', user.uid), where('toId', '==', targetUser.uid));
     const snap = await getDocs(q);
-    if (!snap.empty) {
-      alert("Request already pending or you are already connected.");
-      return;
-    }
-
+    if (!snap.empty) { alert("Request already pending."); return; }
     await addDoc(collection(db, 'friendRequests'), {
-      fromId: user?.uid,
-      fromName: profile?.displayName,
-      fromPic: profile?.profilePic,
-      toId: targetUser.uid,
-      status: 'pending',
-      timestamp: serverTimestamp()
+      fromId: user?.uid, fromName: profile?.displayName, fromPic: profile?.profilePic,
+      toId: targetUser.uid, status: 'pending', timestamp: serverTimestamp()
     });
     alert("Request Sent!");
   };
 
   const acceptRequest = async (req: any) => {
     if (!user) return;
-    
-    // Create individual chat
     await addDoc(collection(db, 'chats'), {
-      type: 'individual',
-      participants: [user.uid, req.fromId],
-      participantDetails: {
-        [user.uid]: { name: profile?.displayName, pic: profile?.profilePic },
-        [req.fromId]: { name: req.fromName, pic: req.fromPic }
-      },
+      type: 'individual', participants: [user.uid, req.fromId],
+      participantDetails: { [user.uid]: { name: profile?.displayName, pic: profile?.profilePic }, [req.fromId]: { name: req.fromName, pic: req.fromPic } },
       createdAt: serverTimestamp()
     });
-
-    // Add to friends collection for both (to keep contact even if chat is deleted)
-    await setDoc(doc(db, 'users', user.uid, 'friends', req.fromId), {
-      uid: req.fromId,
-      displayName: req.fromName,
-      profilePic: req.fromPic,
-      timestamp: serverTimestamp()
-    });
-    
-    await setDoc(doc(db, 'users', req.fromId, 'friends', user.uid), {
-      uid: user.uid,
-      displayName: profile?.displayName,
-      profilePic: profile?.profilePic,
-      timestamp: serverTimestamp()
-    });
-
-    // Delete the request document
+    await setDoc(doc(db, 'users', user.uid, 'friends', req.fromId), { uid: req.fromId, displayName: req.fromName, profilePic: req.fromPic, timestamp: serverTimestamp() });
+    await setDoc(doc(db, 'users', req.fromId, 'friends', user.uid), { uid: user.uid, displayName: profile?.displayName, profilePic: profile?.profilePic, timestamp: serverTimestamp() });
     await deleteDoc(doc(db, 'friendRequests', req.id));
   };
 
   const startChat = async (friend: any) => {
     if (!user) return;
-    
-    // Check if chat already exists
-    const q = query(collection(db, 'chats'), 
-      where('type', '==', 'individual'), 
-      where('participants', 'array-contains', user.uid));
+    const q = query(collection(db, 'chats'), where('type', '==', 'individual'), where('participants', 'array-contains', user.uid));
     const snap = await getDocs(q);
     const existing = snap.docs.find(d => d.data().participants.includes(friend.uid));
-    
-    if (existing) {
-      onChatSelect({ id: existing.id, ...existing.data() });
-    } else {
+    if (existing) onChatSelect({ id: existing.id, ...existing.data() });
+    else {
       const newChat = await addDoc(collection(db, 'chats'), {
-        type: 'individual',
-        participants: [user.uid, friend.uid],
-        participantDetails: {
-          [user.uid]: { name: profile?.displayName, pic: profile?.profilePic },
-          [friend.uid]: { name: friend.displayName, pic: friend.profilePic }
-        },
+        type: 'individual', participants: [user.uid, friend.uid],
+        participantDetails: { [user.uid]: { name: profile?.displayName, pic: profile?.profilePic }, [friend.uid]: { name: friend.displayName, pic: friend.profilePic } },
         createdAt: serverTimestamp()
       });
       onChatSelect({ id: newChat.id, participants: [user.uid, friend.uid] });
@@ -323,63 +190,19 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
   };
 
   const createGroup = async () => {
-    if (!groupForm.name || groupForm.members.length === 0) {
-      alert("Group name and at least one member required");
-      return;
-    }
-    
+    if (!groupForm.name || groupForm.members.length === 0) { alert("Group name and member required"); return; }
     const participants = [user?.uid, ...groupForm.members];
-    const participantDetails: Record<string, any> = {
-      [user?.uid!]: { name: profile?.displayName, pic: profile?.profilePic, handle: profile?.protocolId }
-    };
-    
+    const participantDetails: Record<string, any> = { [user?.uid!]: { name: profile?.displayName, pic: profile?.profilePic, handle: profile?.protocolId } };
     groupForm.members.forEach(id => {
       const p = userProfiles[id] || friends.find(f => f.uid === id);
-      participantDetails[id] = { 
-        name: p?.displayName || p?.name, 
-        pic: p?.profilePic || p?.pic,
-        handle: p?.protocolId || p?.handle
-      };
+      participantDetails[id] = { name: p?.displayName || p?.name, pic: p?.profilePic || p?.pic, handle: p?.protocolId || p?.handle };
     });
-
     await addDoc(collection(db, 'chats'), {
-      type: 'group',
-      name: groupForm.name,
-      participants,
-      participantDetails,
-      createdAt: serverTimestamp(),
+      type: 'group', name: groupForm.name, participants, participantDetails, admins: [user?.uid], restricted: true, createdAt: serverTimestamp(),
       lastMessage: { content: "Group Created", senderId: 'system', timestamp: serverTimestamp() }
     });
-
     setShowGroupModal(false);
     setGroupForm({ name: '', members: [] });
-  };
-
-  const handleCleanDatabase = async () => {
-    if (!isAdmin) return;
-    if (!confirm("Are you ABSOLUTELY sure? This will delete ALL chats, messages, and friend requests for everyone. This cannot be undone.")) return;
-    
-    setIsCleaning(true);
-    try {
-      // 1. Delete all friend requests
-      const reqs = await getDocs(collection(db, 'friendRequests'));
-      for (const d of reqs.docs) await deleteDoc(d.ref);
-
-      // 2. Delete all chats and their messages
-      const chatsSnap = await getDocs(collection(db, 'chats'));
-      for (const chatDoc of chatsSnap.docs) {
-        const msgs = await getDocs(collection(db, 'chats', chatDoc.id, 'messages'));
-        for (const msg of msgs.docs) await deleteDoc(msg.ref);
-        await deleteDoc(chatDoc.ref);
-      }
-
-      alert("Database cleaned successfully. System load minimized.");
-    } catch (err) {
-      console.error("Cleanup failed", err);
-      alert("Error during cleanup. Check console.");
-    } finally {
-      setIsCleaning(false);
-    }
   };
 
   return (

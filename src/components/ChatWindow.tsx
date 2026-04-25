@@ -44,6 +44,9 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
   const [participantsProfiles, setParticipantsProfiles] = useState<Record<string, any>>({});
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
+  const [editingMessage, setEditingMessage] = useState<any>(null);
+  const [replyTo, setReplyTo] = useState<any>(null);
+  const [swipeOffset, setSwipeOffset] = useState<Record<string, number>>({});
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -248,12 +251,28 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
     e?.preventDefault();
     if (!message.trim() && !customData && !user) return;
 
+    if (editingMessage) {
+      try {
+        await updateDoc(doc(db, 'chats', chat.id, 'messages', editingMessage.id), {
+          content: message,
+          isEdited: true,
+          updatedAt: serverTimestamp()
+        });
+        setEditingMessage(null);
+        setMessage('');
+        return;
+      } catch (err) {
+        console.error("Editing failed", err);
+        return;
+      }
+    }
+
     const content = message;
     setMessage('');
     setShowEmoji(false);
     setShowGifs(false);
 
-    const msgData = {
+    const msgData: any = {
       chatId: chat.id,
       senderId: user?.uid,
       senderName: profile?.displayName || user?.displayName,
@@ -264,6 +283,16 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
       seenBy: [user?.uid],
       savedBy: []
     };
+
+    if (replyTo) {
+      msgData.replyTo = {
+        id: replyTo.id,
+        content: replyTo.content,
+        senderName: replyTo.senderName,
+        type: replyTo.type
+      };
+      setReplyTo(null);
+    }
 
     let finalMsgData = { ...msgData };
     
@@ -317,6 +346,13 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
     } catch (err) {
       console.error("Failed to delete message", err);
     }
+  };
+
+  const startEditing = (msg: any) => {
+    setEditingMessage(msg);
+    setMessage(msg.content);
+    setShowEmoji(false);
+    setShowGifs(false);
   };
 
   const addNodeToGroup = async (friend: any) => {
@@ -502,7 +538,7 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
       <div className={`flex flex-col flex-1 h-full relative transition-all duration-300 overflow-hidden ${showInfo ? 'mr-0 sm:mr-80 md:mr-[380px]' : ''}`}>
         <div className={`absolute inset-0 opacity-[0.06] dark:opacity-[0.03] pointer-events-none z-[-1] ${chatBackground === 'minimal' ? 'bg-[url("https://picsum.photos/seed/pattern/1000/1000")] bg-repeat' : ''}`} />
 
-        <div className="h-16 shrink-0 bg-wa-teal dark:bg-wa-panel-dark text-white flex items-center px-4 justify-between z-10 shadow-md">
+        <div className="h-16 shrink-0 bg-wa-teal dark:bg-wa-panel-dark text-white flex items-center px-4 justify-between z-30 shadow-md sticky top-0">
           <div 
             className="flex items-center gap-3 cursor-pointer hover:bg-white/5 p-1 rounded-lg transition-colors flex-1 min-w-0"
             onClick={() => setShowInfo(!showInfo)}
@@ -592,10 +628,50 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
             const isOwn = msg.senderId === user?.uid;
             const isSaved = msg.savedBy?.includes(user?.uid);
             return (
-              <motion.div key={msg.id} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
-                <div className={`message-bubble max-w-[85%] sm:max-w-[70%] ${isOwn ? 'message-out' : 'message-in'} ${isSaved ? 'ring-2 ring-wa-green ring-offset-2' : ''} p-1 overflow-hidden shadow-sm group`}>
+              <motion.div 
+                key={msg.id} 
+                initial={{ opacity: 0, scale: 0.95 }} 
+                animate={{ opacity: 1, scale: 1 }} 
+                className={`flex ${isOwn ? 'justify-end' : 'justify-start'} group/msg relative`}
+              >
+                {!isOwn && (
+                  <motion.div
+                    className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-full pr-2 text-wa-teal opacity-0 group-hover/msg:opacity-100 transition-opacity pointer-events-none"
+                    initial={{ x: -10 }}
+                    whileInView={{ x: 0 }}
+                  >
+                    <ChevronLeft className="w-4 h-4 rotate-180" />
+                  </motion.div>
+                )}
+                
+                <motion.div 
+                  drag="x"
+                  dragConstraints={{ left: 0, right: 100 }}
+                  dragElastic={0.2}
+                  onDrag={(e, info) => {
+                    // Visual feedback during swipe can be added here if needed
+                  }}
+                  onDragEnd={(_, info) => {
+                    if (info.offset.x > 50) {
+                      setReplyTo(msg);
+                    }
+                  }}
+                  className={`message-bubble max-w-[85%] sm:max-w-[70%] ${isOwn ? 'message-out' : 'message-in'} ${isSaved ? 'ring-2 ring-wa-green ring-offset-2' : ''} p-1 overflow-hidden shadow-sm group relative cursor-grab active:cursor-grabbing`}
+                >
+                  {msg.replyTo && (
+                    <div className="mx-1 mt-1 mb-1 bg-black/5 dark:bg-white/5 rounded-lg border-l-4 border-wa-teal dark:border-wa-green p-2 text-[11px] opacity-80 cursor-pointer" onClick={() => {
+                      const el = document.getElementById(`msg-${msg.replyTo.id}`);
+                      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      el?.classList.add('ring-2', 'ring-wa-teal', 'dark:ring-wa-green', 'transition-all', 'duration-1000');
+                      setTimeout(() => el?.classList.remove('ring-2', 'ring-wa-teal', 'dark:ring-wa-green'), 2000);
+                    }}>
+                      <p className="font-black text-wa-teal dark:text-wa-green truncate">{msg.replyTo.senderName === (profile?.displayName || user?.displayName) ? 'You' : msg.replyTo.senderName}</p>
+                      <p className="line-clamp-2 dark:text-slate-300">{msg.replyTo.type === 'image' ? '📷 Image' : msg.replyTo.content}</p>
+                    </div>
+                  )}
+                  
                   {!isOwn && <p className="text-[10px] font-black text-wa-teal dark:text-wa-green mb-1 px-2 pt-1">{msg.senderName}</p>}
-                  <div className="px-2 py-1">
+                  <div className="px-2 py-1" id={`msg-${msg.id}`}>
                     {msg.type === 'image' && (
                       <img 
                         src={msg.mediaUrl} 
@@ -619,14 +695,21 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
                     {renderMessageContent(msg)}
                   </div>
                   <div className="flex items-center justify-end gap-1 px-2 pb-1 opacity-60">
+                    {msg.isEdited && <span className="text-[9px] italic font-medium mr-1">edited</span>}
                     <span className="text-[9px] uppercase font-bold tracking-tighter">{msg.timestamp ? format(msg.timestamp.toDate(), 'HH:mm') : ''}</span>
                     {isOwn && <span className="text-blue-500 flex items-center">{msg.seenBy?.length > 1 ? <CheckCheck className="w-3 h-3" /> : <Check className="w-3 h-3" />}</span>}
                   </div>
                   <div className="absolute -right-2 top-0 translate-x-full flex flex-col items-center gap-1 opacity-0 group-hover:opacity-100 transition-all z-10">
+                    <button onClick={() => setReplyTo(msg)} className="p-1 hover:text-wa-teal" title="Reply"><ChevronLeft className="w-3.5 h-3.5 rotate-180" /></button>
                     <button onClick={() => saveMessage(msg.id, isSaved)} className="p-1 hover:text-wa-green"><Save className={`w-3.5 h-3.5 ${isSaved ? 'fill-current text-wa-green' : 'text-slate-400'}`} /></button>
-                    {isOwn && <button onClick={() => deleteMessage(msg.id)} className="p-1 hover:text-red-500"><Trash2 className="w-3.5 h-3.5 text-slate-400 hover:text-red-500" /></button>}
+                    {isOwn && (
+                      <>
+                        <button onClick={() => startEditing(msg)} className="p-1 hover:text-wa-teal" title="Edit"><Save className="w-3.5 h-3.5 text-slate-400 rotate-90" /></button>
+                        <button onClick={() => deleteMessage(msg.id)} className="p-1 hover:text-red-500" title="Delete"><Trash2 className="w-3.5 h-3.5 text-slate-400 hover:text-red-500" /></button>
+                      </>
+                    )}
                   </div>
-                </div>
+                </motion.div>
               </motion.div>
             );
           })}
@@ -648,6 +731,42 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
         </AnimatePresence>
 
         <footer className="p-2 sm:p-3 bg-[#F0F2F5] dark:bg-[#111B21] transition-colors relative">
+          {/* Reply Overlay */}
+          <AnimatePresence>
+            {replyTo && (
+              <motion.div 
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 10 }}
+                className="absolute bottom-full left-0 w-full bg-white dark:bg-[#111B21] border-t border-slate-200 dark:border-slate-800 p-3 flex items-center gap-3 shadow-lg"
+              >
+                <div className="w-1 bg-wa-teal dark:bg-wa-green h-full absolute left-0 top-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] font-black text-wa-teal dark:text-wa-green uppercase tracking-widest">{replyTo.senderName === (profile?.displayName || user?.displayName) ? 'You' : replyTo.senderName}</p>
+                  <p className="text-xs dark:text-slate-300 truncate">{replyTo.content}</p>
+                </div>
+                <button onClick={() => setReplyTo(null)} className="p-2 text-slate-400 hover:text-red-500"><X className="w-5 h-5" /></button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Edit Overlay */}
+          <AnimatePresence>
+            {editingMessage && (
+              <motion.div 
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 10 }}
+                className="absolute bottom-full left-0 w-full bg-wa-teal/5 dark:bg-wa-green/5 border-t border-wa-teal dark:border-wa-green p-3 flex items-center gap-3 shadow-lg"
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] font-black text-wa-teal dark:text-wa-green uppercase tracking-widest">Editing Message</p>
+                  <p className="text-xs dark:text-slate-300 truncate">{editingMessage.content}</p>
+                </div>
+                <button onClick={() => { setEditingMessage(null); setMessage(''); }} className="p-2 text-slate-400 hover:text-red-500"><X className="w-5 h-5" /></button>
+              </motion.div>
+            )}
+          </AnimatePresence>
           {/* GIF Picker Overlay */}
           <AnimatePresence>
             {showGifs && (

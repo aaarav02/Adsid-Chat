@@ -76,9 +76,19 @@ export default function Sidebar({ onChatSelect, selectedChatId }: SidebarProps) 
 
   useEffect(() => {
     if (!user) return;
-    const q = query(collection(db, 'chats'), where('participants', 'array-contains', user.uid));
+    const q = query(
+      collection(db, 'chats'), 
+      where('participants', 'array-contains', user.uid)
+    );
     return onSnapshot(q, (snapshot) => {
-      setChats(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      const sortedChats = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .sort((a: any, b: any) => {
+          const timeA = a.lastMessage?.timestamp?.toMillis() || 0;
+          const timeB = b.lastMessage?.timestamp?.toMillis() || 0;
+          return timeB - timeA;
+        });
+      setChats(sortedChats);
     });
   }, [user]);
 

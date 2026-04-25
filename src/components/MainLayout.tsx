@@ -56,8 +56,8 @@ export default function MainLayout() {
         }}
       />
 
-      {/* Global Top Nav */}
-      <header className="h-14 border-b border-slate-200 dark:border-slate-800 flex items-center px-4 justify-between bg-wa-panel-light dark:bg-wa-panel-dark z-50 transition-colors shrink-0">
+      {/* Global Top Nav - Hidden on mobile if chat is open */}
+      <header className={`h-14 border-b border-slate-200 dark:border-slate-800 flex items-center px-4 justify-between bg-wa-panel-light dark:bg-wa-panel-dark z-50 transition-colors shrink-0 ${selectedChat ? 'hidden md:flex' : 'flex'}`}>
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-wa-teal rounded-xl flex items-center justify-center overflow-hidden shadow-lg shadow-wa-teal/20">
             <img 

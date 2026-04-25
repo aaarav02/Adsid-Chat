@@ -498,11 +498,11 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
   };
 
   return (
-    <div className={`flex h-full ${getBackgroundStyle()} relative overflow-hidden transition-colors`}>
-      <div className={`flex flex-col flex-1 h-full relative transition-all duration-300 overflow-x-hidden ${showInfo ? 'mr-0 sm:mr-80 md:mr-[380px]' : ''}`}>
-        <div className={`absolute inset-0 opacity-[0.06] dark:opacity-[0.03] pointer-events-none ${chatBackground === 'minimal' ? 'bg-[url("https://picsum.photos/seed/pattern/1000/1000")] bg-repeat' : ''}`} />
+    <div className={`flex h-dvh sm:h-full ${getBackgroundStyle()} relative overflow-hidden transition-colors`}>
+      <div className={`flex flex-col flex-1 h-full relative transition-all duration-300 overflow-hidden ${showInfo ? 'mr-0 sm:mr-80 md:mr-[380px]' : ''}`}>
+        <div className={`absolute inset-0 opacity-[0.06] dark:opacity-[0.03] pointer-events-none z-[-1] ${chatBackground === 'minimal' ? 'bg-[url("https://picsum.photos/seed/pattern/1000/1000")] bg-repeat' : ''}`} />
 
-        <div className="h-16 bg-wa-teal dark:bg-wa-panel-dark text-white flex items-center px-4 justify-between sticky top-0 z-10 shadow-md">
+        <div className="h-16 shrink-0 bg-wa-teal dark:bg-wa-panel-dark text-white flex items-center px-4 justify-between z-10 shadow-md">
           <div 
             className="flex items-center gap-3 cursor-pointer hover:bg-white/5 p-1 rounded-lg transition-colors flex-1 min-w-0"
             onClick={() => setShowInfo(!showInfo)}
@@ -699,7 +699,7 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
                 onChange={(e) => setMessage(e.target.value)} 
                 placeholder={quotaExceeded ? "Database Full - READ ONLY" : "Type a message node..."} 
                 disabled={quotaExceeded}
-                className={`flex-1 bg-transparent border-none focus:outline-none text-sm dark:text-white ${quotaExceeded ? 'cursor-not-allowed opacity-50 italic' : ''}`} 
+                className={`flex-1 bg-transparent border-none focus:outline-none text-[16px] md:text-sm dark:text-white ${quotaExceeded ? 'cursor-not-allowed opacity-50 italic' : ''}`} 
               />
               <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} />
             </div>

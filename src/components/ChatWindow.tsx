@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Send, Smile, Paperclip, MoreVertical, ChevronLeft, Check, CheckCheck, Save, Trash2, User, CheckCircle2, Image as ImageIcon, Gift, X, Play, FileText, Users, UserPlus, Bell, BellOff, ChevronDown } from 'lucide-react';
+import { Send, Smile, Paperclip, MoreVertical, ChevronLeft, Check, CheckCheck, Save, Trash2, User, CheckCircle2, Image as ImageIcon, Gift, X, Play, FileText, Users, UserPlus, Bell, BellOff, ChevronDown, Pencil } from 'lucide-react';
 import { db, auth } from '../lib/firebase';
 import { useTheme } from '../contexts/ThemeContext';
 import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, arrayUnion, arrayRemove, deleteDoc, getDocs, writeBatch } from 'firebase/firestore';
@@ -47,6 +47,7 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
   const [editingMessage, setEditingMessage] = useState<any>(null);
   const [replyTo, setReplyTo] = useState<any>(null);
   const [swipeOffset, setSwipeOffset] = useState<Record<string, number>>({});
+  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, msg: any } | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -353,6 +354,13 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
     setMessage(msg.content);
     setShowEmoji(false);
     setShowGifs(false);
+    setContextMenu(null);
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setContextMenu(null);
+    // Optional: show a toast
   };
 
   const addNodeToGroup = async (friend: any) => {
@@ -632,6 +640,10 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
                 key={msg.id} 
                 initial={{ opacity: 0, scale: 0.95 }} 
                 animate={{ opacity: 1, scale: 1 }} 
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setContextMenu({ x: e.clientX, y: e.clientY, msg });
+                }}
                 className={`flex ${isOwn ? 'justify-end' : 'justify-start'} group/msg relative`}
               >
                 {!isOwn && (
@@ -646,17 +658,29 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
                 
                 <motion.div 
                   drag="x"
-                  dragConstraints={{ left: 0, right: 100 }}
-                  dragElastic={0.2}
-                  onDrag={(e, info) => {
-                    // Visual feedback during swipe can be added here if needed
-                  }}
+                  dragConstraints={{ left: 0, right: 0 }}
+                  dragElastic={{ left: 0, right: 0.8 }}
                   onDragEnd={(_, info) => {
-                    if (info.offset.x > 50) {
+                    if (info.offset.x > 60) {
                       setReplyTo(msg);
                     }
                   }}
-                  className={`message-bubble max-w-[85%] sm:max-w-[70%] ${isOwn ? 'message-out' : 'message-in'} ${isSaved ? 'ring-2 ring-wa-green ring-offset-2' : ''} p-1 overflow-hidden shadow-sm group relative cursor-grab active:cursor-grabbing`}
+                  className={`message-bubble max-w-[85%] sm:max-w-[70%] ${isOwn ? 'message-out' : 'message-in'} ${isSaved ? 'ring-2 ring-wa-green ring-offset-2' : ''} p-1 overflow-hidden shadow-sm group relative cursor-grab active:cursor-grabbing select-none`}
+                  onPointerDown={(e) => {
+                    const clientX = e.clientX;
+                    const clientY = e.clientY;
+                    const timer = setTimeout(() => {
+                      setContextMenu({ x: clientX, y: clientY, msg });
+                    }, 500);
+                    // Clear timer on up/move
+                    const clear = () => {
+                      clearTimeout(timer);
+                      window.removeEventListener('pointerup', clear);
+                      window.removeEventListener('pointermove', clear);
+                    };
+                    window.addEventListener('pointerup', clear);
+                    window.addEventListener('pointermove', clear);
+                  }}
                 >
                   {msg.replyTo && (
                     <div className="mx-1 mt-1 mb-1 bg-black/5 dark:bg-white/5 rounded-lg border-l-4 border-wa-teal dark:border-wa-green p-2 text-[11px] opacity-80 cursor-pointer" onClick={() => {
@@ -1005,6 +1029,60 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
       </AnimatePresence>
 
       <AnimatePresence>
+        {contextMenu && (
+          <div 
+            className="fixed inset-0 z-[110]" 
+            onClick={() => setContextMenu(null)}
+            onContextMenu={(e) => { e.preventDefault(); setContextMenu(null); }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 10 }}
+              className="absolute bg-white dark:bg-[#233138] shadow-2xl rounded-2xl border border-slate-200 dark:border-white/5 py-2 min-w-[180px] overflow-hidden"
+              style={{ 
+                left: Math.min(contextMenu.x, window.innerWidth - 200), 
+                top: Math.min(contextMenu.y, window.innerHeight - 250) 
+              }}
+              onClick={e => e.stopPropagation()}
+            >
+              <button 
+                onClick={() => { setReplyTo(contextMenu.msg); setContextMenu(null); }}
+                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors text-sm font-medium dark:text-white"
+              >
+                <ChevronLeft className="w-4 h-4 rotate-180" /> Reply
+              </button>
+              <button 
+                onClick={() => copyToClipboard(contextMenu.msg.content)}
+                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors text-sm font-medium dark:text-white"
+              >
+                <FileText className="w-4 h-4" /> Copy
+              </button>
+              {contextMenu.msg.senderId === user?.uid && (
+                <button 
+                  onClick={() => startEditing(contextMenu.msg)}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors text-sm font-medium dark:text-white"
+                >
+                  <Pencil className="w-4 h-4" /> Edit
+                </button>
+              )}
+              <button 
+                onClick={() => { saveMessage(contextMenu.msg.id, contextMenu.msg.savedBy?.includes(user?.uid)); setContextMenu(null); }}
+                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors text-sm font-medium dark:text-white"
+              >
+                <Save className="w-4 h-4" /> Save
+              </button>
+              <div className="h-px bg-slate-100 dark:bg-white/5 my-1" />
+              <button 
+                onClick={() => { deleteMessage(contextMenu.msg.id); setContextMenu(null); }}
+                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-red-50 dark:hover:bg-red-500/10 text-red-500 transition-colors text-sm font-medium"
+              >
+                <Trash2 className="w-4 h-4" /> Delete
+              </button>
+            </motion.div>
+          </div>
+        )}
+
         {fullscreenImage && (
           <motion.div 
             initial={{ opacity: 0 }}

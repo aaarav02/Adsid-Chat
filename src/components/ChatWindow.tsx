@@ -44,6 +44,7 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
   const [participantsProfiles, setParticipantsProfiles] = useState<Record<string, any>>({});
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [fullscreenMedia, setFullscreenMedia] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
+  const [modalPlaying, setModalPlaying] = useState(false);
   const [editingMessage, setEditingMessage] = useState<any>(null);
   const [replyTo, setReplyTo] = useState<any>(null);
   const [swipeOffset, setSwipeOffset] = useState<Record<string, number>>({});
@@ -52,6 +53,18 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (fullscreenMedia?.type === 'video') {
+      const timer = setTimeout(() => setModalPlaying(true), 500);
+      return () => {
+        clearTimeout(timer);
+        setModalPlaying(false);
+      };
+    } else {
+      setModalPlaying(false);
+    }
+  }, [fullscreenMedia]);
 
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
     messagesEndRef.current?.scrollIntoView({ behavior });
@@ -562,6 +575,9 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
         )}
         
         {msg.content.match(urlRegex)?.map((url: string, i: number) => {
+          // Skip if this URL is already handled by the rich preview
+          if (msg.linkPreview && msg.linkPreview.url === url) return null;
+          
           if (isVideoLink(url)) {
             return (
               <div 
@@ -594,6 +610,16 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
       case 'cyber-teal': return 'bg-wa-teal dark:bg-wa-dark-green';
       default: return 'bg-[#E5DDD5] dark:bg-[#0B141A]';
     }
+  };
+
+  const closeFullscreen = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setModalPlaying(false);
+    // Add a slight delay to allow ReactPlayer to respond to the playing prop change 
+    // before the component is completely unmounted by setFullscreenMedia(null)
+    setTimeout(() => {
+      setFullscreenMedia(null);
+    }, 50);
   };
 
   return (
@@ -1158,10 +1184,10 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/95 z-[120] flex items-center justify-center p-4 backdrop-blur-sm"
-            onClick={() => setFullscreenMedia(null)}
+            onClick={closeFullscreen}
           >
             <button 
-              onClick={() => setFullscreenMedia(null)} 
+              onClick={closeFullscreen} 
               className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white z-[130] transition-colors"
             >
               <X className="w-6 h-6" />
@@ -1182,12 +1208,18 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
                 />
               ) : (
                 <div className="w-full aspect-video max-w-4xl bg-black rounded-lg overflow-hidden shadow-2xl">
-                  <Player 
+                   <Player 
                     url={fullscreenMedia.url} 
                     width="100%" 
                     height="100%" 
                     controls 
-                    playing 
+                    playing={modalPlaying} 
+                    onError={(e) => console.warn('Playback error handled:', e)}
+                    config={{
+                      youtube: {
+                        playerVars: { autoplay: 1, rel: 0, modestbranding: 1 }
+                      }
+                    }}
                   />
                 </div>
               )}

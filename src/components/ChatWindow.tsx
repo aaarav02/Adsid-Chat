@@ -43,7 +43,7 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
   const [editingPic, setEditingPic] = useState('');
   const [participantsProfiles, setParticipantsProfiles] = useState<Record<string, any>>({});
   const [showScrollButton, setShowScrollButton] = useState(false);
-  const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
+  const [fullscreenMedia, setFullscreenMedia] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
   const [editingMessage, setEditingMessage] = useState<any>(null);
   const [replyTo, setReplyTo] = useState<any>(null);
   const [swipeOffset, setSwipeOffset] = useState<Record<string, number>>({});
@@ -280,6 +280,8 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
       content: customData?.content || content,
       type: customData?.type || 'text',
       mediaUrl: customData?.url || null,
+      fileName: customData?.fileName || null,
+      cloudinaryId: customData?.cloudinaryId || null,
       timestamp: serverTimestamp(),
       seenBy: [user?.uid],
       savedBy: []
@@ -343,6 +345,14 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
   const deleteMessage = async (msgId: string) => {
     if (!confirm("Are you sure you want to delete this message?")) return;
     try {
+      const msg = messages.find(m => m.id === msgId);
+      if (msg?.cloudinaryId) {
+        fetch('/api/delete-media', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ public_id: msg.cloudinaryId })
+        }).catch(err => console.error("Cloudinary deletion failed", err));
+      }
       await deleteDoc(doc(db, 'chats', chat.id, 'messages', msgId));
     } catch (err) {
       console.error("Failed to delete message", err);
@@ -420,28 +430,51 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 700000) {
-      alert("Protocol Alert: File size exceeds 700KB limit for direct peer-to-peer sync. Please use cloud links.");
-      return;
-    }
-
     setUploading(true);
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const base64 = event.target?.result as string;
-      let type: 'image' | 'video' | 'file' = 'file';
-      if (file.type.startsWith('image/')) type = 'image';
-      else if (file.type.startsWith('video/')) type = 'video';
+    try {
+      // 1. Get signature from our server
+      const sigRes = await fetch('/api/upload-signature');
+      const { timestamp, signature, apiKey, cloudName } = await sigRes.json();
+
+      if (!cloudName) {
+        throw new Error("Cloudinary Cloud Name is not configured");
+      }
+
+      // 2. Upload to Cloudinary
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('api_key', apiKey);
+      formData.append('timestamp', timestamp);
+      formData.append('signature', signature);
       
-      await sendMessage(undefined, { 
-        type, 
-        url: base64, 
-        content: `Attached ${file.name}`,
-        fileName: file.name
+      const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`, {
+        method: 'POST',
+        body: formData
       });
+      
+      const data = await res.json();
+      if (data.secure_url) {
+        let type: 'image' | 'video' | 'file' = 'file';
+        if (file.type.startsWith('image/')) type = 'image';
+        else if (file.type.startsWith('video/')) type = 'video';
+        
+        await sendMessage(undefined, { 
+          type, 
+          url: data.secure_url, 
+          content: `Shared ${file.name}`,
+          fileName: file.name,
+          cloudinaryId: data.public_id
+        });
+      } else {
+        throw new Error(data.error?.message || "Upload failed");
+      }
+    } catch (err) {
+      console.error("Cloudinary upload failed", err);
+      alert("Media delivery failed: Support for this protocol upload node is pending configuration.");
+    } finally {
       setUploading(false);
-    };
-    reader.readAsDataURL(file);
+      setShowAttachMenu(false);
+    }
   };
 
   const toggleDisappearingMode = async () => {
@@ -489,39 +522,61 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
         </p>
 
         {msg.linkPreview && (
-          <motion.a 
-            href={msg.linkPreview.url}
-            target="_blank"
-            rel="noopener noreferrer"
+          <motion.div 
             initial={{ opacity: 0, y: 5 }}
             animate={{ opacity: 1, y: 0 }}
             className="block bg-black/5 dark:bg-white/5 rounded-xl border-l-4 border-wa-teal dark:border-wa-green overflow-hidden mt-2 no-underline"
           >
             {msg.linkPreview.image && (
-              <img 
-                src={msg.linkPreview.image} 
-                className="w-full h-32 object-cover cursor-zoom-in" 
-                referrerPolicy="no-referrer" 
-                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setFullscreenImage(msg.linkPreview.image); }}
-              />
+              <div 
+                className="relative group/preview cursor-pointer" 
+                onClick={(e) => { 
+                  e.preventDefault(); 
+                  e.stopPropagation(); 
+                  if (msg.linkPreview.isYoutube) {
+                    setFullscreenMedia({ url: msg.linkPreview.url, type: 'video' });
+                  } else {
+                    setFullscreenMedia({ url: msg.linkPreview.image, type: 'image' });
+                  }
+                }}
+              >
+                <img 
+                  src={msg.linkPreview.image} 
+                  className="w-full h-32 object-cover" 
+                  referrerPolicy="no-referrer" 
+                />
+                {msg.linkPreview.isYoutube && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/10 group-hover/preview:bg-black/30 transition-colors">
+                    <div className="bg-wa-teal p-2 rounded-full shadow-lg">
+                      <Play className="text-white fill-current w-4 h-4 ml-0.5" />
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
-            <div className="p-3">
+            <a href={msg.linkPreview.url} target="_blank" rel="noopener noreferrer" className="p-3 block no-underline">
               <h4 className="text-[13px] font-bold dark:text-white line-clamp-1">{msg.linkPreview.title}</h4>
               <p className="text-[11px] opacity-60 dark:text-slate-300 line-clamp-2 mt-0.5">{msg.linkPreview.description}</p>
-            </div>
-          </motion.a>
+            </a>
+          </motion.div>
         )}
         
         {msg.content.match(urlRegex)?.map((url: string, i: number) => {
           if (isVideoLink(url)) {
             return (
-              <div key={i} className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 aspect-video relative group">
+              <div 
+                key={i} 
+                className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 aspect-video relative group cursor-pointer"
+                onClick={() => setFullscreenMedia({ url, type: 'video' })}
+              >
+                <div className="absolute inset-0 z-10 pointer-events-none" />
                 <Player 
                   url={url} 
                   width="100%" 
                   height="100%" 
                   light={true}
                   playIcon={<div className="bg-wa-teal p-3 rounded-full shadow-lg"><Play className="text-white fill-current" /></div>}
+                  style={{ pointerEvents: 'none' }}
                 />
               </div>
             );
@@ -559,7 +614,7 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
             </button>
             <div 
               className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center overflow-hidden border border-white/20 shrink-0 shadow-inner cursor-zoom-in"
-              onClick={(e) => { e.stopPropagation(); setFullscreenImage(liveChat.groupPic || chat.profilePic || otherProfile?.profilePic); }}
+              onClick={(e) => { e.stopPropagation(); setFullscreenMedia({ url: liveChat.groupPic || chat.profilePic || otherProfile?.profilePic, type: 'image' }); }}
             >
                {(liveChat.groupPic || chat.profilePic || otherProfile?.profilePic) ? (
                  <img src={liveChat.groupPic || chat.profilePic || otherProfile?.profilePic} alt="" className="w-full h-full object-cover" />
@@ -701,12 +756,26 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
                         src={msg.mediaUrl} 
                         className="rounded-lg mb-2 max-w-full h-auto border border-slate-100 dark:border-slate-800 cursor-zoom-in" 
                         referrerPolicy="no-referrer" 
-                        onClick={() => setFullscreenImage(msg.mediaUrl)}
+                        onClick={() => setFullscreenMedia({ url: msg.mediaUrl, type: 'image' })}
+                        onLoad={() => {
+                          if (msg.timestamp?.toMillis() > Date.now() - 5000) {
+                            scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+                          }
+                        }}
                       />
                     )}
                     {msg.type === 'video' && (
-                      <div className="rounded-lg mb-2 overflow-hidden border border-slate-100 dark:border-slate-800 aspect-video relative">
-                        <Player url={msg.mediaUrl} width="100%" height="100%" controls={true} light={true} playIcon={<div className="bg-wa-teal p-3 rounded-full shadow-lg"><Play className="text-white fill-current" /></div>} />
+                      <div className="relative group/vid cursor-pointer mb-2" onClick={() => setFullscreenMedia({ url: msg.mediaUrl, type: 'video' })}>
+                        <video 
+                          src={`${msg.mediaUrl}#t=0.1`} 
+                          className="w-full max-h-60 object-cover rounded-lg border border-slate-100 dark:border-slate-800"
+                          muted
+                          playsInline
+                          preload="metadata"
+                        />
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover/vid:bg-black/40 transition-colors rounded-lg">
+                          <Play className="w-12 h-12 text-white fill-current opacity-80" />
+                        </div>
                       </div>
                     )}
                     {msg.type === 'file' && (
@@ -882,7 +951,7 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
               <div className="flex flex-col items-center py-10 bg-white dark:bg-wa-panel-light/5 border-b border-slate-100 dark:border-slate-800/50">
                 <div 
                   className="w-40 h-40 rounded-full overflow-hidden mb-6 border-4 border-white dark:border-wa-panel-dark shadow-2xl cursor-zoom-in"
-                  onClick={() => setFullscreenImage(liveChat.groupPic || chat.profilePic || otherProfile?.profilePic)}
+                  onClick={() => setFullscreenMedia({ url: liveChat.groupPic || chat.profilePic || otherProfile?.profilePic, type: 'image' })}
                 >
                    {(liveChat.groupPic || chat.profilePic || otherProfile?.profilePic) ? (
                      <img src={liveChat.groupPic || chat.profilePic || otherProfile?.profilePic} alt="" className="w-full h-full object-cover" />
@@ -1041,8 +1110,8 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
               exit={{ opacity: 0, scale: 0.9, y: 10 }}
               className="absolute bg-white dark:bg-[#233138] shadow-2xl rounded-2xl border border-slate-200 dark:border-white/5 py-2 min-w-[180px] overflow-hidden"
               style={{ 
-                left: Math.min(contextMenu.x, window.innerWidth - 200), 
-                top: Math.min(contextMenu.y, window.innerHeight - 250) 
+                left: Math.max(10, Math.min(contextMenu.x, window.innerWidth - 200)), 
+                top: Math.max(10, Math.min(contextMenu.y, window.innerHeight - 250)) 
               }}
               onClick={e => e.stopPropagation()}
             >
@@ -1083,25 +1152,45 @@ export default function ChatWindow({ chat, onBack }: ChatWindowProps) {
           </div>
         )}
 
-        {fullscreenImage && (
+        {fullscreenMedia && (
           <motion.div 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/95 z-[100] flex items-center justify-center p-4 backdrop-blur-sm"
-            onClick={() => setFullscreenImage(null)}
+            className="fixed inset-0 bg-black/95 z-[120] flex items-center justify-center p-4 backdrop-blur-sm"
+            onClick={() => setFullscreenMedia(null)}
           >
+            <button 
+              onClick={() => setFullscreenMedia(null)} 
+              className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white z-[130] transition-colors"
+            >
+              <X className="w-6 h-6" />
+            </button>
+
             <motion.div 
-              initial={{ scale: 0.9 }}
-              animate={{ scale: 1 }}
-              exit={{ scale: 0.9 }}
-              className="relative max-w-4xl w-full aspect-square"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="relative max-w-5xl max-h-[85vh] w-full flex items-center justify-center"
               onClick={e => e.stopPropagation()}
             >
-              <img src={fullscreenImage} className="w-full h-full object-contain shadow-2xl" referrerPolicy="no-referrer" />
-              <button onClick={() => setFullscreenImage(null)} className="absolute -top-12 right-0 p-2 text-white/50 hover:text-white transition-colors">
-                <X className="w-8 h-8" />
-              </button>
+              {fullscreenMedia.type === 'image' ? (
+                <img 
+                  src={fullscreenMedia.url} 
+                  className="max-w-full max-h-[85vh] object-contain shadow-2xl rounded-lg" 
+                  referrerPolicy="no-referrer" 
+                />
+              ) : (
+                <div className="w-full aspect-video max-w-4xl bg-black rounded-lg overflow-hidden shadow-2xl">
+                  <Player 
+                    url={fullscreenMedia.url} 
+                    width="100%" 
+                    height="100%" 
+                    controls 
+                    playing 
+                  />
+                </div>
+              )}
             </motion.div>
           </motion.div>
         )}

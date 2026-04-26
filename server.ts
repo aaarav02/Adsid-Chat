@@ -5,9 +5,17 @@ import { fileURLToPath } from "url";
 import admin from "firebase-admin";
 import axios from "axios";
 import * as cheerio from "cheerio";
+import { v2 as cloudinary } from 'cloudinary';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Cloudinary Configuration
+cloudinary.config({
+  cloud_name: process.env.VITE_CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 async function startServer() {
   const app = express();
@@ -42,6 +50,20 @@ async function startServer() {
       const html = response.data;
       const $ = cheerio.load(html);
 
+      // YouTube specific handling
+      if (url.includes('youtube.com') || url.includes('youtu.be')) {
+        const videoId = url.includes('youtu.be') ? url.split('/').pop() : new URL(url).searchParams.get('v');
+        if (videoId) {
+          return res.json({
+            title: $('meta[property="og:title"]').attr('content') || $('title').text() || "YouTube Video",
+            description: $('meta[property="og:description"]').attr('content') || "",
+            image: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
+            url: url,
+            isYoutube: true
+          });
+        }
+      }
+
       const metadata = {
         title: $('meta[property="og:title"]').attr('content') || $('title').text() || url,
         description: $('meta[property="og:description"]').attr('content') || $('meta[name="description"]').attr('content') || "",
@@ -52,6 +74,37 @@ async function startServer() {
       res.json(metadata);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch metadata" });
+    }
+  });
+
+  app.get("/api/upload-signature", (req, res) => {
+    if (!process.env.CLOUDINARY_API_SECRET || !process.env.VITE_CLOUDINARY_CLOUD_NAME) {
+      console.error("Cloudinary configuration missing in environment variables!");
+      return res.status(500).json({ error: "Cloudinary not configured" });
+    }
+    const timestamp = Math.round(new Date().getTime() / 1000);
+    const signature = cloudinary.utils.api_sign_request(
+      { timestamp: timestamp },
+      process.env.CLOUDINARY_API_SECRET!
+    );
+    res.json({ 
+      timestamp, 
+      signature, 
+      apiKey: process.env.CLOUDINARY_API_KEY,
+      cloudName: process.env.VITE_CLOUDINARY_CLOUD_NAME
+    });
+  });
+
+  app.post("/api/delete-media", express.json(), async (req, res) => {
+    const { public_id } = req.body;
+    if (!public_id) return res.status(400).json({ error: "Missing public_id" });
+    
+    try {
+      await cloudinary.uploader.destroy(public_id);
+      res.json({ success: true });
+    } catch (err) {
+      console.error("Cloudinary destruction failed", err);
+      res.status(500).json({ error: "Deletion failed" });
     }
   });
 
@@ -74,14 +127,16 @@ async function startServer() {
         const batch = db.batch();
         let deletedCount = 0;
         
-        unsavedMessages.forEach(doc => {
+        for (const doc of unsavedMessages.docs) {
           const data = doc.data();
-          // Only delete if savedBy is empty or missing
           if (!data.savedBy || data.savedBy.length === 0) {
+            if (data.cloudinaryId) {
+              await cloudinary.uploader.destroy(data.cloudinaryId).catch(err => console.error("Cloud cleanup failed", err));
+            }
             batch.delete(doc.ref);
             deletedCount++;
           }
-        });
+        }
 
         if (deletedCount > 0) {
           await batch.commit();
